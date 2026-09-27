@@ -1,0 +1,31 @@
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Node
+node_modules/
+dist/
+coverage/
+*.log
+
+# Terraform(state と変数ファイルには OCID や秘密情報が入る)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+*.tfplan
+crash.log
+
+# OCI / 秘密情報
+.oci/
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+
+# Claude Code(個人設定)
+.claude/settings.local.json
+CLAUDE.local.md
