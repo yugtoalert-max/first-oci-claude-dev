@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(terraform apply *)",
+      "Bash(terraform destroy *)",
+      "Bash(terraform -chdir=* apply *)",
+      "Bash(terraform -chdir=* destroy *)",
+      "Read(**/*.tfvars)",
+      "Read(**/*.tfstate)",
+      "Read(**/*.tfstate.*)",
+      "Read(~/.oci/**)"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+# このファイルを terraform.tfvars にコピーして値を入れる(terraform.tfvars は Git 管理外)
+#   cp terraform.tfvars.example terraform.tfvars
+
+# このリポジトリ専用の親コンパートメントの OCID
+parent_compartment_ocid = "ocid1.compartment.oc1..xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# 以下は既定値のままでよければ省略可
+# region             = "ap-tokyo-1"
+# oci_config_profile = "DEFAULT"
