@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // scripts/(配置スクリプトと手元の API サーバー)は Node.js で動くので、DOM ではなく @types/node を使う。
+    // 画面のコード(src/)は tsconfig.json で DOM の型を使って検査する
+    "lib": ["ES2024"],
+    "types": ["node"],
+    // 配置スクリプトは node で直接(型を取り除いて)実行するので、import に .ts を付け、型を消すだけで動く書き方に限る
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true
+  },
+  "include": ["scripts", "vite.config.ts"]
+}

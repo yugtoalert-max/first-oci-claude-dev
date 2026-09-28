@@ -28,6 +28,10 @@ npm run kvlite:down     # コンテナを停止して削除
 - ポート 8080 が使えないときは、`kvlite:up` のポートを変えて起動し、`KVLITE_ENDPOINT=http://localhost:<ポート> npm run test:contract` で接続先を渡します
 - テストは KVLite に `memos_contract_test` テーブルを作り、テストごとに中身を消します。コンテナを削除すればテーブルも消えます
 
+## フロントエンド
+
+手元の開発サーバーでの動かし方、手動確認のチェックリスト、配置スクリプト(`npm run deploy:web` / `npm run clean:web`)は [apps/web/README.md](apps/web/README.md) にあります。
+
 ## ライセンス
 
 [MIT](LICENSE)

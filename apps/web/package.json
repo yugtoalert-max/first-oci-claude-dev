@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:api": "esbuild scripts/local-api.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/local-api/server.mjs --log-level=warning && node node_modules/.cache/local-api/server.mjs",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
     "@memo/core": "*"

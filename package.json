@@ -15,7 +15,9 @@
     "kvlite:down": "docker rm -f memo-kvlite",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "build:functions": "npm run build:function --workspaces --if-present"
+    "build:functions": "npm run build:function --workspaces --if-present",
+    "deploy:web": "npm run build -w @memo/web && node apps/web/scripts/deploy-web.ts",
+    "clean:web": "node apps/web/scripts/clean-web.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
