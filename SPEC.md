@@ -61,6 +61,7 @@ infra/             Terraform(既存)
 
 - TypeScript は `strict: true`
   - `packages/core` と `apps/api/*` は Node.js の型(`@types/node`)を使い、tsconfig の `lib` に DOM を入れない **(仮置き)**。core のブラウザでの型は、フロントエンドの tsconfig で検査する
+  - `apps/web` は `lib` に `DOM` と `DOM.Iterable` を入れ、`types` は `vite/client` だけにする(`@types/node` は入れない)**(仮置き)**
 - テストランナーは Vitest
 - Node.js のバージョンは、OCI Functions の Node FDK が対応する最新の LTS **(仮置き)**
   - 現時点では固定していない(`engines` や `.nvmrc` を置いていない)。FDK との接続と func.yaml を作るときに、FDK の対応状況を確認して固定する **(仮置き)**
@@ -373,7 +374,7 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 - **テストを先に書く**対象
   - `packages/core` のユースケースとバリデーション。リポジトリ・Clock・IdGenerator はインメモリの偽物を渡す
   - アダプター層の HTTP 変換(ルーティング、ステータス、ヘッダー、problem+json、4.4 の判定の順序)
-  - フロントエンドの API クライアント層([10.4](#104-テスト))
+  - フロントエンドの API クライアント層([10.4](#104-テスト)、[10.5](#105-api-クライアント層仮置き))
 - **リポジトリの契約テスト**
   - 同じテストを、インメモリ実装と NoSQL 実装の両方に対して実行する
   - NoSQL 側は、ローカルの Docker で動かす Oracle NoSQL Database CE の KVLite(イメージ: `ghcr.io/oracle/nosql:latest-ce`)を使う
@@ -416,6 +417,10 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 - API のベース URL
   - 本番のビルドでは相対パス `/api` を使う
   - 手元で開発するときは `VITE_API_BASE_URL` を `apps/web/.env`(Git 管理外)で渡し、`apps/web/.env.example` にプレースホルダを置く
+  - `VITE_API_BASE_URL` の値は `/api` まで含める(例: `https://<host>/api`)。末尾の `/` は取り除く **(仮置き)**
+  - 本番のビルドでは `VITE_API_BASE_URL` があっても使わない(`.env` は本番のビルドでも読み込まれるため)。開発で値がない・空のときは、黙って `/api` にせず例外を投げる **(仮置き)**
+- ルートの `npm run build` で各ワークスペースの `build`(今は `apps/web` の `vite build` だけ)を実行する **(仮置き)**
+- 画面を作るまでは、`index.html` と空の `src/main.ts` だけを置いてビルドが通る状態にしておく **(仮置き)**
 
 ### 10.2 画面
 
@@ -459,8 +464,30 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - `Retry-After` の解釈
   - カーソルの受け渡し
 - UI は自動テストせず、手動の確認手順(チェックリスト)で確認する。チェックリストは `apps/web/README.md` に書く
+- API クライアントのテストは偽物の fetch を使う。加えて、偽物の fetch の裏に memo-api のアダプター(`createHandler` + インメモリのリポジトリ)を置き、クライアントとサーバーの組み合わせで CRUD・`412`・カーソルでのページ送りを確かめる(`apps/web/src/api/client.adapter.test.ts`。Docker 不要なので `npm test` で実行する)**(仮置き)**
+  - このため memo-api は `@memo/memo-api/handler`(`createHandler` だけ。NoSQL の SDK を読み込まない)をサブパスとして公開し、`apps/web` は memo-api を `devDependencies` にだけ入れる **(仮置き)**
 
-### 10.5 配置作業
+### 10.5 API クライアント層(仮置き)
+
+`apps/web/src/api/client.ts` の `createApiClient({ baseUrl, getToken, fetch? })`。画面の状態は持たない。以下はすべて **(仮置き)**。
+
+- **戻り値**: core の `Result` を使い、`{ ok: true, value }` か `{ ok: false, error: ApiError }` を返す
+  - `ApiError` は `{ status, code, errors?, retryAfterSeconds? }`。`code` は core の `ErrorCode`
+  - fetch 自体の失敗(ネットワークエラー、CORS で拒否されたときなど)は例外のまま投げる
+  - 成功のレスポンスに `ETag` がない(CORS で公開していないなど)のは設定の誤りなので、例外を投げる
+- **メモの型**: core の `Memo` / `MemoSummary` / `MemoPage` を使い、`createdAt` / `updatedAt` は `Date` に変換する
+- **ETag**: 作成・取得・更新はメモと ETag(ダブルクォート付きのヘッダーの値のまま)を `{ memo, etag }` で返す。ETag はクライアントの中にはためず、呼び出し側(画面)が持ち、`updateMemo(id, etag, patch)` / `deleteMemo(id, etag?)` に渡す。渡した値をそのまま `If-Match` に付ける。`deleteMemo` で省略したら `If-Match` を付けない
+- **エラーの変換**
+  - `401` はボディにかかわらず `UNAUTHORIZED`(ボディを読まない)
+  - それ以外は、`Content-Type` のメディアタイプが `application/problem+json` で、`code` が `ERROR_CODES` のどれかならそれを使う。`VALIDATION_FAILED` なら `errors` も返す
+  - problem+json でない、または知らない `code` のときは、ステータスから決める: `404` → `NOT_FOUND`、`412` → `PRECONDITION_FAILED`、`415` → `UNSUPPORTED_MEDIA_TYPE`、`428` → `PRECONDITION_REQUIRED`、`429` → `THROTTLED`、それ以外(`502` など)→ `INTERNAL`
+- **Retry-After**: 前後の空白を除いて 0 以上の整数(秒数)として読めたときだけ `retryAfterSeconds` を付ける。HTTP-date・小数・負の数などは付けない(API は秒数で返すため)。付かなかったときにどれだけ待つかは画面で決める
+- **カーソル**: `listMemos({ cursor?, limit? })`。受け取った `nextCursor` を解釈せずに `cursor` クエリとして渡す。`nextCursor` はそのまま(最後のページでは `null`)返す
+- **トークン**: `getToken()` をリクエストのたびに呼び、`Authorization: Bearer <token>` を付ける。`sessionStorage` での保管は画面側で作る
+- **パス**: `{baseUrl}/memos`、`{baseUrl}/memos/{id}`。id は `encodeURIComponent` でエンコードする
+- **fetch**: 差し替えられる。省略時はグローバルの `fetch` を包んで呼ぶ(ブラウザでは `window` 以外を `this` にして呼ぶと失敗するため)
+
+### 10.6 配置作業
 
 - インフラ(バケット・PAR・API Gateway など)は Terraform で作る。**静的ファイルのアップロードは Terraform の外**で行う
 - npm スクリプトを 2 つ用意する
