@@ -1,0 +1,9 @@
+# runtime: docker は、同じディレクトリの Dockerfile でイメージを作るという意味。
+# fn build はバンドル(npm run bundle)を実行しないので、イメージは npm run build:functions で作る。
+# アプリケーションのシェイプ(GENERIC_ARM)と Function の設定(NOSQL_TABLE_NAME・NOSQL_COMPARTMENT_ID)は Terraform で設定する
+schema_version: 20180708
+name: memo-api
+version: 0.0.1
+runtime: docker
+memory: 256
+timeout: 30

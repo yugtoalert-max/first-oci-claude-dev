@@ -1,0 +1,16 @@
+{
+  "name": "@memo/authorizer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "bundle": "node ../../../scripts/bundle-function.mjs",
+    "build:function": "npm run bundle && docker build --platform linux/arm64 -t memo-authorizer:local ."
+  },
+  "dependencies": {
+    "@fnproject/fdk": "^0.0.108",
+    "oci-common": "^2.142.0",
+    "oci-secrets": "^2.142.0"
+  }
+}
