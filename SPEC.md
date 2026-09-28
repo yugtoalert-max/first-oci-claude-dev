@@ -271,6 +271,8 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - OPTIONS(ブラウザが本リクエストの前に送る事前確認。プリフライト)は API Gateway の CORS 設定で応答し、authorizer を通さない
 - トークンの保管先: **OCI Vault のシークレット**
   - Vault と鍵は Terraform で作る
+  - Vault は**共有型(`vault_type = DEFAULT`)**を使う。専用型の Virtual Private Vault は 1 時間 ¥577.22(月 約42万円)と高額なので使わない
+  - 共有型 Vault + 鍵 1 本 + シークレット 1 つなら月 0 円に収まる([13.1](#131-確認済み事項))
   - **シークレットの値は人がコンソールか CLI で登録・更新する。Terraform には値を渡さない**(tfstate に平文を残さないため)。Terraform にはシークレットの OCID だけを `*.tfvars` で渡す **(仮置き)**
   - stg と prod で別のトークンを使う
   - トークンは 32 バイト以上の乱数を base64url にしたもの **(仮置き)**
@@ -278,7 +280,7 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - `Authorization: Bearer <token>` を取り出し、シークレットの値と**タイミング攻撃に強い比較**(`crypto.timingSafeEqual`)で照合する
   - シークレットの値はモジュールのスコープに 5 分キャッシュする **(仮置き)**。トークンを替えても、最大でこの時間だけ古いトークンが通る
   - API Gateway 側で認証結果をキャッシュする時間も 5 分 **(仮置き)**
-- 注意: Vault の削除は即時ではなく、猶予期間(最短 7 日)を経てから消える。`terraform destroy` の直後に同じ名前で作り直すと失敗しうる。infra/README.md に追記すること
+- 注意: Vault の削除は即時ではなく、猶予期間 7〜30 日(既定 30 日)を経てから消える。Terraform では最短の 7 日を指定する **(仮置き)**。`terraform destroy` の直後に同じ名前で作り直すと失敗しうる。infra/README.md に追記すること
 
 ## 8. CORS
 
@@ -345,7 +347,8 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - フロントエンドの API クライアント層([10.4](#104-テスト))
 - **リポジトリの契約テスト**
   - 同じテストを、インメモリ実装と NoSQL 実装の両方に対して実行する
-  - NoSQL 側は、ローカルの Docker で動かす Oracle NoSQL Database CE の KVLite を使う
+  - NoSQL 側は、ローカルの Docker で動かす Oracle NoSQL Database CE の KVLite(イメージ: `ghcr.io/oracle/nosql:latest-ce`)を使う
+    - arm64 版のイメージがあり、Apple Silicon の Mac(Colima)で動作確認済み([13.1](#131-確認済み事項))
   - 最低限確認すること:
     - `ORDER BY id DESC` の順序
     - `after` と `limit + 1` による境界(ちょうど `limit` 件、0 件、最後のページ)
@@ -478,6 +481,13 @@ CLAUDE.md の方針どおり、クラウドに変更を加える操作は人が�
 | 3 | authorizer が 401 を返したとき、その応答に CORS ヘッダーが付くか | stg で手元から開発するとき、401 が「CORS エラー」にしか見えない | 開発時の既知の制約として README に書く、または Vite の proxy で同一オリジンにする |
 | 4 | API Gateway の HTTP バックエンドから PAR 経由で Object Storage に接続したとき、`/` を `index.html` として返せるか。Content-Type が保たれるか | フロントエンドの配信方式 | ルートの定義を変える。だめなら配信方式を仕様から見直す |
 | 5 | `oci os object sync` で Content-Type が正しく付くか | ブラウザで JS / CSS が読み込めない | スクリプトで拡張子ごとに Content-Type を指定してアップロードする |
+
+### 13.1 確認済み事項
+
+| 確認日 | 事項 | 結果 |
+|---|---|---|
+| 2026-09-28 | Vault の費用(Oracle 公式 FAQ と公開価格 API) | シークレットの保管は無料。共有型 Vault(`DEFAULT`)は作成無料で、鍵のバージョン数で課金される(ソフトウェア保護は無料、HSM 保護は 20 バージョンまで無料)。専用型は 1 時間 ¥577.22。削除猶予期間は 7〜30 日(既定 30 日)。今回の構成は月 0 円。シークレットの暗号化にソフトウェア保護の鍵を使えるかは未確認だが、HSM 保護でも無料枠内なので費用の結論は変わらない |
+| 2026-09-28 | KVLite(`ghcr.io/oracle/nosql:latest-ce`)が Apple Silicon の Mac で動くか | arm64 版のイメージがあり、Colima で起動できた。Node.js SDK(`oracle-nosqldb`)で次を確認: get の version は Buffer、現在のバージョンでの putIfVersion は成功してバージョンが変わる、古いバージョンでの putIfVersion / deleteIfVersion は `success: false`、PK 単独のテーブルで `WHERE id < $after ORDER BY id DESC LIMIT $lim` により次のページが取れる。行バージョンの形式はクラウドと違う可能性があるが、opaque として扱うので問題ない |
 
 ## 14. 範囲外
 
