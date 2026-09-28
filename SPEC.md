@@ -62,6 +62,7 @@ infra/             Terraform(既存)
 - TypeScript は `strict: true`
 - テストランナーは Vitest
 - Node.js のバージョンは、OCI Functions の Node FDK が対応する最新の LTS **(仮置き)**
+  - 現時点では固定していない(`engines` や `.nvmrc` を置いていない)。FDK との接続と func.yaml を作るときに、FDK の対応状況を確認して固定する **(仮置き)**
 
 ## 3. データモデル
 
@@ -108,11 +109,17 @@ infra/             Terraform(既存)
 - ベースパス: `/api` **(仮置き)**
 - 認証: すべての `/api/*` は `Authorization: Bearer <token>` が必要([7 章](#7-認証))
 - リクエストのボディ: `Content-Type: application/json`(`charset` 付きも可)。それ以外は `415`
+  - `Content-Type` はメディアタイプ(`;` より前)だけを大文字・小文字を区別せずに比べ、`charset` などのパラメーターの値は見ない **(仮置き)**。`application/merge-patch+json` なども `415`
+  - ボディを受け取らないメソッド(GET・DELETE)では `Content-Type` を見ない
 - レスポンス
   - 成功は `application/json`、エラーは `application/problem+json`
   - JSON のキーは camelCase
-  - API のレスポンスには `Cache-Control: no-store` を付ける **(仮置き)**
+  - API のレスポンスには `Cache-Control: no-store` を付ける **(仮置き)**。`204` やエラーにも付ける
 - 定義していないキーがリクエストのボディにあれば `400`(`VALIDATION_FAILED`)。誤字を早く見つけるため
+- ボディが JSON のオブジェクトでない場合(配列・`null`・文字列など)は `400`(`VALIDATION_FAILED`、`field` は `""`、`reason` は `INVALID_TYPE`)**(仮置き)**
+- 空のボディは JSON として解析できないので `400`(`INVALID_JSON`)
+- クエリ文字列の未定義のキーは無視する。同じキーが複数あれば最初の値を使う **(仮置き)**
+- ヘッダー名の大文字・小文字は区別しない
 
 ### 4.2 メモの表現
 
@@ -154,6 +161,7 @@ infra/             Terraform(既存)
 
 - クエリ
   - `limit`: 1〜50 の整数。既定 20。範囲外や整数でない値は `400`
+    - 10 進の整数として読めない値(`1.5`、`abc`、空文字など)は `reason` が `INVALID_FORMAT`、整数だが範囲外(`0`、`51`、負の数)は `OUT_OF_RANGE` **(仮置き)**
   - `cursor`: 前のレスポンスの `nextCursor`。省略すると先頭から
 - 成功: `200`
 
@@ -180,6 +188,8 @@ infra/             Terraform(既存)
 - ヘッダー: `If-Match: "<etag>"` が必須
   - 省略したら `428`
   - 値は ETag を 1 つだけ受け付ける。`*` や複数の値は `400`(`VALIDATION_FAILED`、field は `If-Match`)**(仮置き)**
+    - 受け付ける形は、ダブルクォートで囲んだ強い ETag 1 つ(中身は RFC 9110 の etagc で 1 文字以上)。前後の空白は無視する。`reason` は `INVALID_FORMAT` **(仮置き)**
+    - 次も同じく `400`: `W/` 付き(弱い ETag)、ダブルクォートなし、空の ETag(`""`)、`If-Match` ヘッダーが複数行で届いたとき **(仮置き)**
 - ボディ: `{ "title"?: string, "body"?: string }`。指定したキーだけを変える
   - `{}`(変更する項目がない)は `400`
   - `null` は `400`(`title: null` も `body: null` も)
@@ -242,7 +252,7 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 ```
 
 - `errors` は `VALIDATION_FAILED` のときだけ付ける
-- `field` の値: `title` / `body` / `limit` / `cursor` / `If-Match` / 未定義のキーの名前
+- `field` の値: `title` / `body` / `limit` / `cursor` / `If-Match` / 未定義のキーの名前 / `""`(リクエスト全体に対するエラー。`NO_CHANGES` とボディが非オブジェクトの `INVALID_TYPE`)
 - `reason` の値 **(仮置き)**: `REQUIRED` / `INVALID_TYPE` / `BLANK` / `TOO_LONG` / `OUT_OF_RANGE` / `INVALID_FORMAT` / `UNKNOWN_FIELD` / `NO_CHANGES`(PATCH の `{}`。リクエスト全体に対するエラーなので `field` は `""`)
 - `500` のレスポンスには内部の詳細(例外のメッセージ、スタックトレース)を含めない
 
@@ -262,6 +272,7 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 
 - `Retry-After` の値は秒数で `1` **(仮置き)**
 - 定義していないルートやメソッドへのリクエストは API Gateway が `404` などを返す。ボディの形式は保証しない
+  - それでも memo-api に届いた場合、アダプター層はパス違いもメソッド違いも `404`(`NOT_FOUND`、problem+json)を返す。`405` は使わない **(仮置き)**。末尾に `/` が付いたパスも定義していないルートとして扱う
 
 ## 7. 認証
 
@@ -316,12 +327,18 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 ```
 
 - ユースケースは HTTP も NoSQL も知らない
+- アダプター層は FDK に依存しない純粋な関数(`createHandler(deps)` が返す `(request) => Promise<response>`)として書き、FDK との接続は薄い別ファイルにする **(仮置き)**
+  - 入力: リクエスト ID・メソッド・URL(パスとクエリ文字列)・ヘッダー・ボディ(文字列)。出力: ステータス・ヘッダー・ボディ(文字列)
+  - ログの出力先と所要時間の計測用のタイマーも `deps` で受け取る(Node.js の API に直接依存しない)
+  - FDK との接続(エントリポイント・func.yaml)はまだ作っていない
 - エラーは例外ではなく、型付きの判別共用体(`{ ok: true, value } | { ok: false, error }`)で返す **(仮置き)**
 - リポジトリは NoSQL のスロットリングを、ドメインの `Throttled` エラーに変換して返す
+  - 判別共用体で返すのはスロットリングだけ。それ以外の失敗(接続エラーなど想定外のもの)は例外のまま投げ、アダプター層で捕まえて `500`(`INTERNAL`)にする **(仮置き)**
 - `MemoRepository` の操作 **(仮置き)**
   - `insert(memo)` → version
   - `findById(id)` → memo と version、またはなし
   - `list({ after?, limit })` → 要約の配列(`limit + 1` 件まで取得)
+    - リポジトリは `limit + 1` 件までをそのまま返し、ユースケースが先頭の `limit` 件に切り詰めて、`limit + 1` 件目の有無から `nextCursor` を決める **(仮置き)**
   - `updateIfVersion(memo, expectedVersion)` → 新しい version、または競合
   - `delete(id, expectedVersion?)` → 成功 / なし / 競合
 
@@ -363,6 +380,9 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 
 - 1 リクエスト 1 行の JSON を標準出力に書き、OCI Logging に集める
 - 出す項目: リクエスト ID、メソッド、ルートのテンプレート(例: `/api/memos/{id}`)、ステータス、所要時間(ms)、エラー時の `code`
+  - キー名 **(仮置き)**: `requestId` / `method` / `route` / `status` / `durationMs` / `code`(エラー時だけ) / `error`(`500` のときだけ。`name`・`message`・`stack`)
+  - 定義していないルートでは `route` を `null` にする(実際のパスは出さない)**(仮置き)**
+  - リクエスト ID をどのヘッダー(FDK の呼び出し ID か、API Gateway の `opc-request-id` か)から取るかは、FDK との接続を作るときに決める
 - **出さないもの: `title`、`body`、トークン、`Authorization` ヘッダー**
 - `500` のときは、原因の例外をログに出す(レスポンスには出さない)
 
