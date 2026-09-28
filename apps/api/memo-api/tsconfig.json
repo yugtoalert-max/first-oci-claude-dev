@@ -1,10 +1,10 @@
 {
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
-    // core のソースも型検査に含まれるので、core と同じく atob / btoa / TextEncoder の型のために DOM を入れる。
+    // memo-api は Node.js で動く(NoSQL の SDK も Node.js の Buffer などを使う)ので、DOM ではなく @types/node を使う。
     // アダプター層そのものは Node.js の API に依存させず、ログの出力先と経過時間の計測は呼び出し側から渡す
-    "lib": ["ES2022", "DOM"],
-    "types": []
+    "lib": ["ES2022"],
+    "types": ["node"]
   },
   "include": ["src"]
 }
