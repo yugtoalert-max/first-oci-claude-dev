@@ -1,2 +1,8 @@
-// 画面(SPEC 10.2・10.3)はまだ作っていない。今は API クライアント層だけがある
-export {};
+import "./style.css";
+import { resolveApiBaseUrl } from "./api/base-url";
+import { startApp } from "./app";
+
+const root = document.getElementById("app");
+if (!root) throw new Error("#app is missing in index.html");
+
+startApp(root, { baseUrl: resolveApiBaseUrl(import.meta.env), storage: sessionStorage });

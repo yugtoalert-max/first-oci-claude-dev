@@ -1,0 +1,90 @@
+:root {
+  font-family: system-ui, sans-serif;
+  line-height: 1.6;
+  color-scheme: light dark;
+}
+
+body {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+label {
+  display: block;
+  margin-top: 0.75rem;
+  font-weight: bold;
+}
+
+input[type="text"],
+input[type="password"],
+textarea {
+  box-sizing: border-box;
+  width: 100%;
+  font: inherit;
+}
+
+button,
+.button {
+  font: inherit;
+  padding: 0.25rem 0.75rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+
+.danger {
+  color: #b00020;
+}
+
+.meta {
+  color: GrayText;
+  font-size: 0.875rem;
+}
+
+.memo-list {
+  padding: 0;
+  list-style: none;
+}
+
+.memo-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+}
+
+.memo-list a {
+  overflow-wrap: anywhere;
+}
+
+/* 改行を含むメッセージ(VALIDATION_FAILED の各項目)をそのまま改行して出す */
+.status {
+  white-space: pre-line;
+}
+
+.status[data-kind="error"],
+.field-errors,
+.remaining[data-over="true"] {
+  color: #b00020;
+}
+
+.status[data-kind="success"] {
+  color: #1b7f3b;
+}
+
+.conflict {
+  padding: 0.5rem 1rem;
+  border: 1px solid #b00020;
+}

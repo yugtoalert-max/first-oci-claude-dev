@@ -30,13 +30,19 @@ describe("apiErrorMessage", () => {
 
   it("429 は混み合っていることを伝える", () => {
     expect(apiErrorMessage({ status: 429, code: "THROTTLED", retryAfterSeconds: 1 })).toBe(
-      "混み合っています。少し待ってからもう一度保存してください",
+      "混み合っています。少し待ってからもう一度お試しください",
     );
   });
 
   it("404 はメモが見つからないことを伝える", () => {
     expect(apiErrorMessage({ status: 404, code: "NOT_FOUND" })).toBe(
       "メモが見つかりません。削除された可能性があります",
+    );
+  });
+
+  it("401 はトークンを入れ直してから再度操作するよう伝える", () => {
+    expect(apiErrorMessage({ status: 401, code: "UNAUTHORIZED" })).toBe(
+      "認証に失敗しました。トークンを入力し直してから、もう一度お試しください",
     );
   });
 
