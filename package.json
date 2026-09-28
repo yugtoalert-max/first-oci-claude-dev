@@ -9,6 +9,9 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:contract": "vitest run --config vitest.contract.config.ts",
+    "kvlite:up": "docker run -d --name memo-kvlite --hostname kvlite --env KV_PROXY_PORT=8080 -p 8080:8080 ghcr.io/oracle/nosql:latest-ce",
+    "kvlite:down": "docker rm -f memo-kvlite",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "devDependencies": {
