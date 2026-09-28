@@ -464,7 +464,8 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - `VITE_API_BASE_URL` の値は `/api` まで含める(例: `https://<host>/api`)。末尾の `/` は取り除く **(仮置き)**
   - 本番のビルドでは `VITE_API_BASE_URL` があっても使わない(`.env` は本番のビルドでも読み込まれるため)。開発で値がない・空のときは、黙って `/api` にせず例外を投げる **(仮置き)**
 - ルートの `npm run build` で各ワークスペースの `build`(今は `apps/web` の `vite build` だけ)を実行する **(仮置き)**
-- 画面を作るまでは、`index.html` と空の `src/main.ts` だけを置いてビルドが通る状態にしておく **(仮置き)**
+- ルート **(仮置き)**: `#/`(空・`#` も)は一覧、`#/memos/new` は新規作成、`#/memos/{id}` は詳細 / 編集。id はパーセントエンコードを戻してから ULID の形式で判定し、形式が違えば API を呼ばずに「ページが見つかりません」を出す。末尾の `/` など、それ以外はすべて見つからない扱い
+- ファイルの分け方 **(仮置き)**: `src/ui/` に画面から切り出した純粋なロジック(ルート、入力の上限、Retry-After の時間、文言、トークンの保管)、`src/screens/` と `src/app.ts` に DOM を操作する部分。要素は `src/ui/dom.ts` の `h()` で作り、文字列は必ずテキストノードとして入れる(`innerHTML` を型で受け付けない)
 
 ### 10.2 画面
 
@@ -499,6 +500,24 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - body は残りのバイト数を表示する
 - **未保存のまま離れるとき**
   - 画面を離れるときや別の画面に移るときに、確認のダイアログを出す(`beforeunload` とハッシュの変更で判定する)
+- 実装で決めたこと(すべて **(仮置き)**)
+  - トークン
+    - `sessionStorage` のキーは `memo.token`。入力の前後の空白は取り除く(貼り付けで付きやすいため)。空なら受け付けない
+    - トークン入力はルートではなく、別の領域として持つ。`401` のときは入力中の画面を消さずに隠し、トークンを入れ直したら元の画面に戻す(入力中の内容を失わないため)。失敗した操作は自動で再送せず、もう一度押してもらう
+  - 一覧は既定の件数(20 件)で読み、各行にタイトルと更新日時を出す。最初の読み込みに失敗したら、メッセージだけを出す(再読み込みで直す)
+  - 作成・編集
+    - 事前チェックは core の検証(`validateCreateMemoInput`)をそのまま使う。編集でも title は空にできない。問題があるあいだは保存ボタンを押せない
+    - `input` の `maxlength` は付けない(UTF-16 の長さで数えるため、コードポイント数の上限と合わない)
+    - 編集では、保存済みの内容から何も変わっていなければ保存ボタンを押せない。PATCH には変わったキーだけを入れる(`{}` は `400` になるので送らない)
+    - 保存中に入力が続いても、成功したときに入力欄は書き換えない(保存済みの内容と ETag だけを更新する)
+    - 作成できたら、応答のメモと ETag をそのまま使って詳細画面に移る(もう一度 GET しない)。履歴は置き換える(戻るボタンで空の作成画面に戻らない)
+  - `412` は保存と削除のどちらでも同じ案内を出す。「入力内容をコピー」はタイトル・空行・本文をつなげてクリップボードに入れる。「最新を読み込む」で入力欄を最新の内容に置き換える
+  - `429`
+    - 保存(作成)ボタンに加えて、削除ボタンも同じ時間だけ無効にする。ボタンに残りの秒数を出す
+    - `Retry-After` がない(または秒数として読めない)ときは 5 秒待つ
+  - 削除で `404` が返ったら、すでに消えているので、削除できたときと同じく一覧に戻る
+  - 離れるときの確認: ハッシュの変更で確認し、キャンセルされたら `history.replaceState` で URL を元に戻す(`hashchange` を起こさない)。`beforeunload` は `preventDefault()` で確認を出す
+  - fetch 自体の失敗(ネットワーク、CORS、`ETag` が読めない)は、画面に「通信に失敗しました」と出し、詳細はコンソールに出す
 
 ### 10.4 テスト
 
@@ -510,6 +529,12 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 - UI は自動テストせず、手動の確認手順(チェックリスト)で確認する。チェックリストは `apps/web/README.md` に書く
 - API クライアントのテストは偽物の fetch を使う。加えて、偽物の fetch の裏に memo-api のアダプター(`createHandler` + インメモリのリポジトリ)を置き、クライアントとサーバーの組み合わせで CRUD・`412`・カーソルでのページ送りを確かめる(`apps/web/src/api/client.adapter.test.ts`。Docker 不要なので `npm test` で実行する)**(仮置き)**
   - このため memo-api は `@memo/memo-api/handler`(`createHandler` だけ。NoSQL の SDK を読み込まない)をサブパスとして公開し、`apps/web` は memo-api を `devDependencies` にだけ入れる **(仮置き)**
+- 画面から切り出せる純粋なロジック(`src/ui/` のルートの解釈、残りバイト数、PATCH の組み立て、Retry-After による待ち時間、文言、トークンの保管)も、テストを先に書く **(仮置き)**。DOM を操作する部分(`src/screens/`、`src/app.ts`)は自動テストしない
+- 手元で画面を確かめるための API サーバー **(仮置き)**
+  - `npm run dev:api -w @memo/web` で、memo-api のアダプター(`createHandler`)+ インメモリのリポジトリを `http://127.0.0.1:8787` で動かす(`apps/web/scripts/local-api.ts`)。workspaces のパッケージを読むため、esbuild で 1 ファイルにまとめてから node で実行する
+  - 開発サーバーは `/api` をこのサーバーに中継する(`apps/web/vite.config.ts`)。`apps/web/.env` を `VITE_API_BASE_URL=/api` にしたときに使われる。ポートは `LOCAL_API_PORT` で変えられる
+  - 認証は固定のトークン(既定 `local-dev-token`、`LOCAL_API_TOKEN` で変えられる)。違えば `401`(ボディは text/plain。API Gateway と同じく problem+json を保証しない)
+  - `POST /__local/throttle?count=N` で、次の N 回のリポジトリの操作を `Throttled` にする(`429` を手で確かめるため)
 
 ### 10.5 API クライアント層(仮置き)
 
@@ -544,6 +569,16 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 - 環境固有の値(namespace、バケット名、OCI CLI のプロファイル、リージョン)は、Git 管理外の `.env` から読む。`.env.example` だけをコミットする
 - **どちらのスクリプトも人が実行する**。Claude Code は実行しない
 - Content-Type が正しく付くかは未確定([13 章](#13-未確定事項要検証) の 5)
+- 実装で決めたこと(すべて **(仮置き)**)
+  - `oci os object sync` は使わず、1 ファイルずつ `oci os object put --content-type ... --cache-control ... --force` で上げる(ファイルごとに Content-Type と Cache-Control を指定するため)。削除は `oci os object delete --force`、一覧は `oci os object list --all --fields name`
+  - 順序: バケットの一覧を取得 → `assets/*` → その他のファイル → `index.html` → 一覧にあって `dist/` にないものを削除。各グループの中は名前順
+  - Cache-Control: `assets/*` 以外(`index.html` と、`public/` から来るハッシュなしのファイル)は `no-cache`
+  - Content-Type: `html`・`js`・`mjs`・`css`・`txt` は `charset=utf-8` を付ける。表にない拡張子(拡張子なしを含む)があれば、推測せずにアップロードを始める前に止める(`apps/web/scripts/deploy-plan.ts` の表に足す)
+  - `npm run deploy:web` はビルド(`vite build`)してから同期する
+  - `npm run clean:web` は `oci os object bulk-delete` を `--force` なしで実行し、OCI CLI の確認を人が答える
+  - `.env` はリポジトリのルートに置く(`.env.example` もルート)。キーは `OCI_NAMESPACE` / `OCI_BUCKET` / `OCI_PROFILE` / `OCI_REGION`(OCI CLI 自身が読む `OCI_CLI_*` と名前を分ける)。スクリプトは `.env` を自分で読み、プロセスの環境変数には入れない。別の配置先は `--env-file <path>` で渡す。足りない値は、名前をすべて挙げて止める
+  - `--dry-run`: 実行されるはずの oci コマンドを、シェルに貼れる形で表示するだけ。OCI に接続しないので、バケットの一覧を取らず、削除の対象は表示しない(削除のコマンドの形だけを出す)
+  - スクリプトは TypeScript のまま `node` で直接実行する(型を取り除く機能を使う。Node.js 22.18 以降)。このため import に `.ts` を付け、型を消すだけで動く書き方に限る。型検査は `apps/web/tsconfig.node.json`(`@types/node` を使う)で行う。`apps/web/src` の tsconfig は変えない(DOM の型だけ)
 
 ## 11. 環境で変わってよい値
 
@@ -587,7 +622,7 @@ CLAUDE.md の方針どおり、クラウドに変更を加える操作は人が�
 | 2 | 書き込み 1 ユニットのとき、16KB のメモを書き込むとスロットリングがどう振る舞うか | body の上限値、`429` の出やすさ | body の上限値を下げる、または書き込みユニットを増やす |
 | 3 | authorizer が 401 を返したとき、その応答に CORS ヘッダーが付くか | stg で手元から開発するとき、401 が「CORS エラー」にしか見えない | 開発時の既知の制約として README に書く、または Vite の proxy で同一オリジンにする |
 | 4 | API Gateway の HTTP バックエンドから PAR 経由で Object Storage に接続したとき、`/` を `index.html` として返せるか。Content-Type が保たれるか | フロントエンドの配信方式 | ルートの定義を変える。だめなら配信方式を仕様から見直す |
-| 5 | `oci os object sync` で Content-Type が正しく付くか | ブラウザで JS / CSS が読み込めない | スクリプトで拡張子ごとに Content-Type を指定してアップロードする |
+| 5 | `oci os object sync` で Content-Type が正しく付くか。→ 配置スクリプトは拡張子ごとに `oci os object put --content-type --cache-control` で上げる形にした。手元の OCI CLI のバージョンで `--cache-control` が使えるか、付けた値が PAR と API Gateway を通して届くかは未確認 | ブラウザで JS / CSS が読み込めない。キャッシュが効きすぎる・効かない | オプションが使えなければ OCI CLI を更新する。届かなければ API Gateway のレスポンスヘッダーの変換で付ける |
 | 6 | API Gateway から Function に届く `Fn-Http-Request-Url` の形(パスとクエリ文字列だけか、スキームとホスト付きか。デプロイメントのパスの接頭辞を含むか) | ルーティングできず、すべて `404` になる | 届いた形に合わせて `fdk-bridge.ts` の変換を直す |
 | 7 | memo-api の `204` に FDK が付ける `Content-Type: application/json` が、API Gateway を通してもクライアントに届くか | ボディのない応答に Content-Type が付く(クライアントは 204 のボディを読まないので、動作への影響は小さい) | 既知の制約として残す、または API Gateway のレスポンスヘッダーの変換で消す |
 | 8 | ログのリクエスト ID(`Fn-Call-Id`)と、API Gateway がクライアントに返す `opc-request-id` を突き合わせられるか | 画面で見たエラーから、ログをたどりにくい | `opc-request-id` もログに出す |
