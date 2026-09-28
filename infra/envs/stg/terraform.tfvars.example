@@ -4,6 +4,24 @@
 # このリポジトリ専用の親コンパートメントの OCID
 parent_compartment_ocid = "ocid1.compartment.oc1..xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
+# テナンシの OCID(~/.oci/config の tenancy と同じ値)
+tenancy_ocid = "ocid1.tenancy.oc1..xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# 画面を配信する PAR の有効期限(RFC 3339)。過ぎると画面が表示されなくなる。更新手順は infra/README.md
+web_par_expires_at = "2027-03-31T00:00:00Z"
+
+# CORS で許可するオリジン(stg は手元の開発サーバー。prod は [] にする)
+cors_allowed_origins = ["http://localhost:5173"]
+
+# ---- 2 回目の apply で入れる(3 つとも入れるか、3 つとも省略する)。手順は infra/README.md ----
+# memo_api_image       = "<リージョンキー>.ocir.io/<namespace>/first-oci-claude-dev-stg/memo-api:<タグ>"
+# authorizer_image     = "<リージョンキー>.ocir.io/<namespace>/first-oci-claude-dev-stg/authorizer:<タグ>"
+# auth_token_secret_id = "ocid1.vaultsecret.oc1..xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# ---- destroy の前にだけ入れる。7 日より少し先の日時(RFC 3339)。手順は infra/README.md ----
+# vault_time_of_deletion = "2026-10-06T00:00:00Z"
+
 # 以下は既定値のままでよければ省略可
 # region             = "ap-tokyo-1"
 # oci_config_profile = "DEFAULT"
+# log_retention_days = 30
