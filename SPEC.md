@@ -63,8 +63,8 @@ infra/             Terraform(既存)
   - `packages/core` と `apps/api/*` は Node.js の型(`@types/node`)を使い、tsconfig の `lib` に DOM を入れない **(仮置き)**。core のブラウザでの型は、フロントエンドの tsconfig で検査する
   - `apps/web` は `lib` に `DOM` と `DOM.Iterable` を入れ、`types` は `vite/client` だけにする(`@types/node` は入れない)**(仮置き)**
 - テストランナーは Vitest
-- Node.js のバージョンは、OCI Functions の Node FDK が対応する最新の LTS **(仮置き)**
-  - 現時点では固定していない(`engines` や `.nvmrc` を置いていない)。FDK との接続と func.yaml を作るときに、FDK の対応状況を確認して固定する **(仮置き)**
+- Node.js のバージョンは 24(OCI Functions の Node.js の既定)。Function の実行環境は、ベースイメージ `fnproject/node:24` で固定する
+  - 手元の開発環境のバージョンは固定しない(`engines` や `.nvmrc` を置かない)。esbuild の出力の対象(`target`)を `node24` にして、実行環境に合わせる **(仮置き)**
 
 ## 3. データモデル
 
@@ -294,6 +294,22 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - `Authorization: Bearer <token>` を取り出し、シークレットの値と**タイミング攻撃に強い比較**(`crypto.timingSafeEqual`)で照合する
   - シークレットの値はモジュールのスコープに 5 分キャッシュする **(仮置き)**。トークンを替えても、最大でこの時間だけ古いトークンが通る
   - API Gateway 側で認証結果をキャッシュする時間も 5 分 **(仮置き)**
+  - 2 つのキャッシュは重なるので、トークンを替えてから古いトークンが通らなくなるまで、最大で約 10 分かかる
+- authorizer Function の入出力(OCI の公式ドキュメント「Creating an Authorizer Function」で確認。https://docs.oracle.com/en-us/iaas/Content/APIGateway/Tasks/apigatewayusingauthorizerfunction_topic-Creating_an_Authorizer_Function.htm)
+  - **複数引数の authorizer Function** にする(単一引数は廃止予定とドキュメントにあるため)**(仮置き)**
+  - API Gateway のデプロイメントの `parameters` で、引数 `authorization` に `request.headers[Authorization]` を渡す **(仮置き)**。Function には `{ "type": "USER_DEFINED", "data": { "authorization": "Bearer ..." } }` が届く
+    - 元のリクエストにヘッダーがなければ、引数は `data` に入らない。同じヘッダーが複数あると配列で届く
+  - 応答はどちらも HTTP 200 で返す
+    - 成功: `{ "active": true, "expiresAt": "<5 分後の ISO 8601>" }`。API Gateway は `expiresAt` までの時間(60 秒〜1 時間の範囲)だけ結果をキャッシュする。これで「API Gateway 側のキャッシュ 5 分」を実現する **(仮置き)**
+    - 失敗: `{ "active": false, "wwwAuthenticate": "Bearer" }`。API Gateway はクライアントに `401` と `WWW-Authenticate: Bearer` を返す **(仮置き)**
+    - `scope` は返さない(認可のポリシーに `ANY_OF` を使わないため)。`context` も返さない。ドキュメントの応答に `principal` という項目はないので使わない
+    - Function が 5xx を返すと、API Gateway はクライアントに `502` を返す(ボディは無視される)
+  - 次は Vault を読まずに `active: false` を返す **(仮置き)**: `type` が `USER_DEFINED` でない、`authorization` がない、配列で届いた(要素が 1 つでも)、Bearer の形でない
+  - Bearer の解釈 **(仮置き)**: 前後の空白を除き、スキーム名は大文字・小文字を区別せず、スキームのあとに 1 つ以上の空白、トークンは RFC 6750 の b64token の文字だけ
+  - 比較: 両方を SHA-256 にしてから `crypto.timingSafeEqual` で比べる **(仮置き)**。`timingSafeEqual` は長さが同じでないと比べられないため。これで長さの違いも時間に出ない
+  - Vault から読めない(権限・ネットワークなど)ときは、例外を投げる(API Gateway は `502`)**(仮置き)**。`401` にすると設定の誤りがトークンの誤りに見えるため。失敗はキャッシュしない。取得中に重ねて呼ばれたら、同じ取得を待つ
+  - シークレットの値がトークンの形式(base64url で 43 文字以上 = 32 バイト以上)でなければ、設定の誤りとして例外を投げる(`502`)**(仮置き)**。前後の空白や改行は取り除かない(登録のときの誤りに気づけるように)。例外のメッセージとログにシークレットの値を含めない
+  - シークレットの値は、Vault の現在のバージョン(`CURRENT`)を base64 から UTF-8 に戻したもの。SDK の `SecretsClient` はリソースプリンシパルで認証し、リージョンもリソースプリンシパルのものを使う。最初に Vault を読むときに作る **(仮置き)**
 - 注意: Vault の削除は即時ではなく、猶予期間 7〜30 日(既定 30 日)を経てから消える。Terraform では最短の 7 日を指定する **(仮置き)**。`terraform destroy` の直後に同じ名前で作り直すと失敗しうる。infra/README.md に追記すること
 
 ## 8. CORS
@@ -333,7 +349,19 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 - アダプター層は FDK に依存しない純粋な関数(`createHandler(deps)` が返す `(request) => Promise<response>`)として書き、FDK との接続は薄い別ファイルにする **(仮置き)**
   - 入力: リクエスト ID・メソッド・URL(パスとクエリ文字列)・ヘッダー・ボディ(文字列)。出力: ステータス・ヘッダー・ボディ(文字列)
   - ログの出力先と所要時間の計測用のタイマーも `deps` で受け取る(Node.js の API に直接依存しない)
-  - FDK との接続(エントリポイント・func.yaml)はまだ作っていない
+  - FDK との接続は `apps/api/memo-api/src/fdk/fdk-bridge.ts`、エントリポイントは `src/func.ts`。実行環境では、ログは `console.log`、タイマーは `performance.now()` を使う(`durationMs` に小数が付く)**(仮置き)**
+- FDK との接続 **(仮置き)**
+  - `@fnproject/fdk` の `handle` に `inputMode: "string"` で渡し、ボディを文字列のまま受け取る
+  - FDK は、API Gateway のリクエストを `Fn-Http-Method` / `Fn-Http-Request-Url` / `Fn-Http-H-<名前>` のヘッダーで受け取る。`ctx.httpGateway` の `method` / `requestURL` / `headers` をそのままアダプター層の入力にする。ヘッダーの値は配列のまま渡す(複数行の `If-Match` をアダプター層で判定するため)
+  - `requestURL` が `/` で始まらない(スキームとホスト付き)ときは、パスとクエリ文字列だけにする。OCI の API Gateway でどちらの形で届くかは未確認([13 章](#13-未確定事項要検証) の 6)
+  - メソッド・URL・呼び出し ID のどれかがない(HTTP Gateway 経由でない)呼び出しは、例外を投げる(FDK が 502 を返す)
+  - レスポンスは `ctx.httpGateway.statusCode` と `setResponseHeader` で返す。`Content-Type` は FDK の応答の Content-Type になる
+  - FDK は応答に必ず `Content-Type` を付ける(指定しなければ `application/json`)。このため `204` にも `Content-Type: application/json` が付く。API Gateway を通したときにどうなるかは未確認([13 章](#13-未確定事項要検証) の 7)
+- 本番用の IdGenerator と Clock **(仮置き)**
+  - IdGenerator は `apps/api/memo-api/src/ulid-generator.ts` の `MonotonicUlidGenerator`(乱数は `crypto.randomBytes`)。core には置かない(サーバーだけが使うため)
+  - 同じミリ秒に続けて作るときは、乱数部分(80 ビット)に 1 を足す。上限を超えたら例外を投げる(`500`)
+  - 時刻が前の呼び出しより戻ったときは、渡された時刻で乱数を引き直す(ULID の時刻部分と `createdAt` を同じ時刻にするため)。このときの順序は保証しない
+  - Clock は `new Date()`
 - エラーは例外ではなく、型付きの判別共用体(`{ ok: true, value } | { ok: false, error }`)で返す **(仮置き)**
 - リポジトリは NoSQL のスロットリングを、ドメインの `Throttled` エラーに変換して返す
   - 判別共用体で返すのはスロットリングだけ。それ以外の失敗(接続エラーなど想定外のもの)は例外のまま投げ、アダプター層で捕まえて `500`(`INTERNAL`)にする **(仮置き)**
@@ -349,6 +377,7 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 
 - NoSQL への認証: **リソースプリンシパル**(Function 自身の ID で認証する方式)。API キーは Function に置かない
 - NoSQL クライアントはモジュールのスコープで 1 回だけ作り、以降の呼び出しでも使い回す
+  - 作るのは最初の呼び出しのとき **(仮置き)**。NoSQL の SDK はクライアントを作る時点でリソースプリンシパルの環境変数を読み、なければ例外を投げる。モジュールの読み込み時に作ると、Functions の外(手元のコンテナ)でエントリポイントを読み込めないため。作るのに失敗したら保持せず、次の呼び出しで作り直す
 - SDK の自動リトライは**合計 5 秒で打ち切る**。打ち切ったら `429` + `Retry-After`
   - SDK の `timeout`(リトライとその待ち時間を含めた累積)に 5 秒を使う。クライアントの設定と、リポジトリの各操作のオプションの両方で渡す(クライアントを差し替えても打ち切り時間が変わらないように)**(仮置き)**
   - 5 秒は SDK の呼び出し 1 回ごと **(仮置き)**。一覧では文の準備(`prepare`)と、結果が複数回に分かれて返ったときの各回がそれぞれ 5 秒になり、合計は 5 秒を超えうる
@@ -362,6 +391,8 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - `insert` で id が重複したら(`putIfAbsent` の失敗)例外を投げる(`500`)。インメモリの偽物と同じ
 - Function の設定: memo-api・authorizer ともに、タイムアウト 30 秒、メモリ 256MB
 - テーブル名やコンパートメントは、Function の設定(環境変数)で渡す
+  - 名前 **(仮置き)**: memo-api は `NOSQL_TABLE_NAME`・`NOSQL_COMPARTMENT_ID`、authorizer は `AUTH_TOKEN_SECRET_ID`(シークレットの OCID)。値は Terraform で設定する
+  - 足りない(未設定・空)ときは、モジュールの読み込みの時点で、足りない名前を挙げて例外を投げる **(仮置き)**
 - IAM(Terraform で作る)
   - 動的グループ: 対象コンパートメントの Functions
   - memo-api: 対象テーブルの行の読み書き
@@ -392,6 +423,7 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
     - テスト用のテーブル `memos_contract_test` を KVLite に作り、テストごとに `DELETE FROM` で空にする **(仮置き)**。DDL は `apps/api/memo-api/src/nosql/memos-table.ts` に置き、`infra/modules/nosql/main.tf` の DDL と列・型・主キーが同じことを `npm test` で確かめる
   - SDK をまねた偽物のクライアントを使うテスト(バージョンの変換、打ち切り時間、スロットリングの変換、一覧の文)は、Docker 不要のテストとして `npm test` で実行する **(仮置き)**。スロットリングは KVLite では起こせないため
 - authorizer: 照合ロジック(ヘッダーの解釈、比較、キャッシュ)を関数として切り出してテストする。Vault からの取得は差し替えられるようにする
+  - ファイルの分け方 **(仮置き)**: `bearer.ts`(ヘッダーの解釈と比較)、`secret-cache.ts`(キャッシュ。時刻を差し替えられる)、`vault-secret.ts`(Vault からの取得。`SecretsClient` の `getSecretBundle` だけを使い、テストでは偽物を渡す)、`authorize.ts`(入出力の変換と照合の流れ。トークンの取得を差し替えられる)、`func.ts`(FDK との接続)
 
 ### 9.4 ログ
 
@@ -399,9 +431,21 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 - 出す項目: リクエスト ID、メソッド、ルートのテンプレート(例: `/api/memos/{id}`)、ステータス、所要時間(ms)、エラー時の `code`
   - キー名 **(仮置き)**: `requestId` / `method` / `route` / `status` / `durationMs` / `code`(エラー時だけ) / `error`(`500` のときだけ。`name`・`message`・`stack`)
   - 定義していないルートでは `route` を `null` にする(実際のパスは出さない)**(仮置き)**
-  - リクエスト ID をどのヘッダー(FDK の呼び出し ID か、API Gateway の `opc-request-id` か)から取るかは、FDK との接続を作るときに決める
+  - リクエスト ID は FDK の呼び出し ID(`Fn-Call-Id`、`ctx.callID`)を使う **(仮置き)**。呼び出しごとに必ずあり、OCI Functions のログの呼び出しとも対応するため。API Gateway の `opc-request-id` と突き合わせられるかは未確認([13 章](#13-未確定事項要検証) の 8)
 - **出さないもの: `title`、`body`、トークン、`Authorization` ヘッダー**
 - `500` のときは、原因の例外をログに出す(レスポンスには出さない)
+
+### 9.5 Functions のイメージ(仮置き)
+
+- Functions のアプリケーションのシェイプは `GENERIC_ARM`(決定)。イメージは Apple Silicon の Mac で `linux/arm64` としてネイティブにビルドする
+- npm workspaces のままでは `fn build` が `@memo/core` を解決できないので、esbuild で Function ごとに 1 ファイル(`dist/func.cjs`)にまとめ、独自の Dockerfile でイメージに入れる(決定)
+  - ベースイメージは OCI Functions の公式 Node FDK のランタイムイメージ `fnproject/node:24`。イメージには `func.cjs` だけを入れ、`node_modules` は入れない(`.dockerignore` で `dist/func.cjs` 以外を除く)
+  - 出力は CommonJS(FDK・OCI SDK・NoSQL SDK が CommonJS のため)。バンドルは `scripts/bundle-function.mjs` で行い、esbuild の警告が 1 つでもあれば失敗にする
+  - oracle-nosqldb の `lib/constants.js` にある `delete require.cache[require.resolve('../package.json')]` は、1 ファイルにまとめると実行時に `package.json` を解決できず、読み込みで例外になる。キャッシュを消すだけの行なので、バンドルのときに取り除く。該当の行が見つからなければ(SDK の更新で変わったら)ビルドを失敗させる
+- コマンド: `npm run build:functions`(各 Function の `npm run build:function` = `npm run bundle` + `docker build --platform linux/arm64`)
+  - イメージ名は `memo-api:local` と `memo-authorizer:local`。namespace などの環境固有の値は入れない。push するときは、人がリポジトリの名前とタグを付け直す
+- `func.yaml` は `runtime: docker`・メモリ 256MB・タイムアウト 30 秒。`fn build` はバンドルを実行しないので、イメージは `npm run build:functions` で作る。シェイプと Function の設定は Terraform で設定する
+- 手元での確認: `scripts/fdk-smoke.cjs` をコンテナに渡し、エントリポイントを FDK の `http-stream` 形式で起動して 1 回呼び出す(OCI には接続しない)。リソースプリンシパルがないので、NoSQL と Vault を使う呼び出しは `502` になる
 
 ## 10. フロントエンド
 
@@ -544,6 +588,9 @@ CLAUDE.md の方針どおり、クラウドに変更を加える操作は人が�
 | 3 | authorizer が 401 を返したとき、その応答に CORS ヘッダーが付くか | stg で手元から開発するとき、401 が「CORS エラー」にしか見えない | 開発時の既知の制約として README に書く、または Vite の proxy で同一オリジンにする |
 | 4 | API Gateway の HTTP バックエンドから PAR 経由で Object Storage に接続したとき、`/` を `index.html` として返せるか。Content-Type が保たれるか | フロントエンドの配信方式 | ルートの定義を変える。だめなら配信方式を仕様から見直す |
 | 5 | `oci os object sync` で Content-Type が正しく付くか | ブラウザで JS / CSS が読み込めない | スクリプトで拡張子ごとに Content-Type を指定してアップロードする |
+| 6 | API Gateway から Function に届く `Fn-Http-Request-Url` の形(パスとクエリ文字列だけか、スキームとホスト付きか。デプロイメントのパスの接頭辞を含むか) | ルーティングできず、すべて `404` になる | 届いた形に合わせて `fdk-bridge.ts` の変換を直す |
+| 7 | memo-api の `204` に FDK が付ける `Content-Type: application/json` が、API Gateway を通してもクライアントに届くか | ボディのない応答に Content-Type が付く(クライアントは 204 のボディを読まないので、動作への影響は小さい) | 既知の制約として残す、または API Gateway のレスポンスヘッダーの変換で消す |
+| 8 | ログのリクエスト ID(`Fn-Call-Id`)と、API Gateway がクライアントに返す `opc-request-id` を突き合わせられるか | 画面で見たエラーから、ログをたどりにくい | `opc-request-id` もログに出す |
 
 ### 13.1 確認済み事項
 
