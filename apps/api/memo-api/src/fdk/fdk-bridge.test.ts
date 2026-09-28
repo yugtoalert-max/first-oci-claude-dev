@@ -1,0 +1,141 @@
+import { InMemoryMemoRepository, ManualClock, SequentialIdGenerator } from "@memo/core/testing";
+import { describe, expect, it } from "vitest";
+import { createHandler } from "../handler";
+import { NOW } from "../test-support";
+import {
+  createFdkHandler,
+  type FdkContext,
+  type FdkHttpGateway,
+  toHttpRequest,
+  writeHttpResponse,
+} from "./fdk-bridge";
+
+// FDK は使わず、FDK の Context と同じ形の偽物で確かめる
+
+type FakeGateway = FdkHttpGateway & { responseHeaders: Record<string, string[]> };
+
+function fakeContext(
+  options: {
+    callID?: string | null;
+    requestURL?: string | null;
+    method?: string | null;
+    headers?: Record<string, string[]>;
+  } = {},
+): FdkContext & { httpGateway: FakeGateway } {
+  const responseHeaders: Record<string, string[]> = {};
+  const httpGateway: FakeGateway = {
+    requestURL: options.requestURL === undefined ? "/api/memos" : options.requestURL,
+    method: options.method === undefined ? "GET" : options.method,
+    headers: options.headers ?? {},
+    statusCode: null,
+    setResponseHeader(key, ...values) {
+      responseHeaders[key] = values;
+    },
+    responseHeaders,
+  };
+  return { callID: options.callID === undefined ? "call-1" : options.callID, httpGateway };
+}
+
+describe("toHttpRequest", () => {
+  it("メソッド・URL・ヘッダー・ボディと、リクエスト ID(FDK の呼び出し ID)を取り出す", () => {
+    const ctx = fakeContext({
+      callID: "01ABCDEF",
+      requestURL: "/api/memos?limit=2",
+      method: "POST",
+      headers: { "Content-Type": ["application/json"], "If-Match": ['"a"', '"b"'] },
+    });
+
+    expect(toHttpRequest('{"title":"t"}', ctx)).toEqual({
+      requestId: "01ABCDEF",
+      method: "POST",
+      url: "/api/memos?limit=2",
+      headers: { "Content-Type": ["application/json"], "If-Match": ['"a"', '"b"'] },
+      body: '{"title":"t"}',
+    });
+  });
+
+  it("URL がスキームとホスト付きで届いたら、パスとクエリ文字列だけにする", () => {
+    const ctx = fakeContext({ requestURL: "https://example.com/api/memos?limit=2&cursor=x" });
+
+    expect(toHttpRequest("", ctx).url).toBe("/api/memos?limit=2&cursor=x");
+  });
+
+  it.each([
+    ["メソッド", { method: null }],
+    ["URL", { requestURL: null }],
+    ["呼び出し ID", { callID: null }],
+  ])("HTTP Gateway 経由でない呼び出し(%s がない)は例外を投げる", (_label, options) => {
+    expect(() => toHttpRequest("", fakeContext(options))).toThrow();
+  });
+});
+
+describe("writeHttpResponse", () => {
+  it("ステータスとヘッダーを設定し、ボディを返す", () => {
+    const { httpGateway } = fakeContext();
+
+    const body = writeHttpResponse(
+      {
+        status: 201,
+        headers: { "Content-Type": "application/json", ETag: '"v1"' },
+        body: '{"id":"x"}',
+      },
+      httpGateway,
+    );
+
+    expect(body).toBe('{"id":"x"}');
+    expect(httpGateway.statusCode).toBe(201);
+    expect(httpGateway.responseHeaders).toEqual({
+      "Content-Type": ["application/json"],
+      ETag: ['"v1"'],
+    });
+  });
+});
+
+describe("createFdkHandler", () => {
+  function setup() {
+    const logs: string[] = [];
+    const handle = createHandler({
+      repository: new InMemoryMemoRepository(),
+      clock: new ManualClock(NOW),
+      idGenerator: new SequentialIdGenerator(),
+      log: (line) => logs.push(line),
+      timer: () => 0,
+    });
+    return { logs, fdkHandler: createFdkHandler(handle) };
+  }
+
+  it("FDK の入力をアダプター層に渡し、結果を FDK の応答に書く", async () => {
+    const { logs, fdkHandler } = setup();
+    const ctx = fakeContext({
+      callID: "call-42",
+      method: "POST",
+      requestURL: "/api/memos",
+      headers: { "Content-Type": ["application/json"] },
+    });
+
+    const body = await fdkHandler(JSON.stringify({ title: "買い物" }), ctx);
+
+    expect(ctx.httpGateway.statusCode).toBe(201);
+    expect(ctx.httpGateway.responseHeaders["Content-Type"]).toEqual(["application/json"]);
+    expect(ctx.httpGateway.responseHeaders["Location"]?.[0]).toMatch(/^\/api\/memos\/[0-9A-Z]{26}$/);
+    expect(ctx.httpGateway.responseHeaders["ETag"]).toHaveLength(1);
+    expect(JSON.parse(body)).toMatchObject({ title: "買い物", body: "" });
+    expect(JSON.parse(logs[0] ?? "")).toMatchObject({ requestId: "call-42", status: 201 });
+  });
+
+  it("204 はボディを空文字で返す", async () => {
+    const { fdkHandler } = setup();
+    const created = fakeContext({
+      method: "POST",
+      headers: { "Content-Type": ["application/json"] },
+    });
+    await fdkHandler(JSON.stringify({ title: "t" }), created);
+    const location = created.httpGateway.responseHeaders["Location"]?.[0] ?? "";
+
+    const ctx = fakeContext({ method: "DELETE", requestURL: location });
+    const body = await fdkHandler("", ctx);
+
+    expect(ctx.httpGateway.statusCode).toBe(204);
+    expect(body).toBe("");
+  });
+});
