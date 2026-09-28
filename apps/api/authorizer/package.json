@@ -1,18 +1,14 @@
 {
-  "name": "@memo/memo-api",
+  "name": "@memo/authorizer",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts",
-    "./handler": "./src/handler.ts"
-  },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@fnproject/fdk": "^0.0.108",
-    "@memo/core": "*",
-    "oracle-nosqldb": "^5.5.4"
+    "oci-common": "^2.142.0",
+    "oci-secrets": "^2.142.0"
   }
 }
