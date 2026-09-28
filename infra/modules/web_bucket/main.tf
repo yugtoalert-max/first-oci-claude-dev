@@ -18,4 +18,10 @@ resource "oci_objectstorage_preauthrequest" "web" {
   access_type           = "AnyObjectRead"
   bucket_listing_action = "Deny"
   time_expires          = var.par_expires_at
+
+  lifecycle {
+    # プロバイダは読み取り時に bucket_listing_action を state に入れない(oracle/oci 9.3.0 で確認)。
+    # 比べると毎回「作り直し」の差分が出るので、作成時の値だけを使う(PAR は作成後に変更できない)
+    ignore_changes = [bucket_listing_action]
+  }
 }
