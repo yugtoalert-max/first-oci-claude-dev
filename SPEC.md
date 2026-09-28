@@ -353,7 +353,9 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - FDK との接続は `apps/api/memo-api/src/fdk/fdk-bridge.ts`、エントリポイントは `src/func.ts`。実行環境では、ログは `console.log`、タイマーは `performance.now()` を使う(`durationMs` に小数が付く)**(仮置き)**
 - FDK との接続 **(仮置き)**
   - `@fnproject/fdk` の `handle` に `inputMode: "string"` で渡し、ボディを文字列のまま受け取る
-  - FDK は、API Gateway のリクエストを `Fn-Http-Method` / `Fn-Http-Request-Url` / `Fn-Http-H-<名前>` のヘッダーで受け取る。`ctx.httpGateway` の `method` / `requestURL` / `headers` をそのままアダプター層の入力にする。ヘッダーの値は配列のまま渡す(複数行の `If-Match` をアダプター層で判定するため)
+  - FDK は、API Gateway のリクエストを `Fn-Http-Method` / `Fn-Http-Request-Url` / `Fn-Http-H-<名前>` のヘッダーで受け取る。`ctx.httpGateway` の `method` / `requestURL` をそのままアダプター層の入力にする。ヘッダーの値は配列のまま渡す(複数行の `If-Match` をアダプター層で判定するため)
+  - ヘッダーは、呼び出しそのもののヘッダー(`ctx.headers`。`Fn-` で始まる内部用のものは除く)と `ctx.httpGateway.headers` を合わせて渡す **(仮置き)**。`Content-Type` などは `Fn-Http-H-` が付かず、呼び出しそのもののヘッダーとして届くため(stg で `415` になった。[13 章](#13-未確定事項要検証) の 16)
+    - 同じ名前が両方にあれば `httpGateway` 側を使う **(仮置き)**。`Fn-Http-H-` 付きのものは API Gateway が受け取ったヘッダーを明示的に転送したものなので、クライアントの値として確かなほうを優先する。呼び出しそのもののヘッダーには、API Gateway と Functions の間の呼び出しで付いたもの(`Content-Length` など)も混ざりうる
   - `requestURL` が `/` で始まらない(スキームとホスト付き)ときは、パスとクエリ文字列だけにする。OCI の API Gateway でどちらの形で届くかは未確認([13 章](#13-未確定事項要検証) の 6)
   - メソッド・URL・呼び出し ID のどれかがない(HTTP Gateway 経由でない)呼び出しは、例外を投げる(FDK が 502 を返す)
   - レスポンスは `ctx.httpGateway.statusCode` と `setResponseHeader` で返す。`Content-Type` は FDK の応答の Content-Type になる
@@ -685,6 +687,7 @@ CLAUDE.md の方針どおり、クラウドに変更を加える操作は人が�
 | 13 | `is_anonymous_access_allowed = true` のとき、`Authorization` ヘッダーのない `/api` へのリクエストが(`AUTHENTICATION_ONLY` のルートで)`401` になるか | 認証なしで API に届く(memo-api は認証を見ないので、誰でも読み書きできる) | 画面と API を別のデプロイメントに分け、API のデプロイメントでは匿名のアクセスを許さない |
 | 14 | デプロイメントのパスの接頭辞に `/` を使えるか。`/{path*}` と `/api/...` の両方が期待どおりに振り分けられるか | デプロイメントを作れない、または画面か API に届かない | パスの接頭辞を分ける(例: `/app` と `/api`)。仕様(同一オリジンの URL)の見直しを伴う |
 | 15 | 同じテナンシの非公開の OCIR のリポジトリから、ポリシーなしで Function がイメージを取得できるか | Function の呼び出しが失敗する | 取得のためのポリシーを公式ドキュメントで確かめて追加する |
+| 16 | API Gateway が受け取ったヘッダーのうち、どれが `Fn-Http-H-<名前>` として、どれが呼び出しそのもののヘッダーとして Function に届くか。→ 2026-09-28 の stg で、`Content-Type: application/json` を付けた `POST /api/memos` が `415` になった(`GET` の一覧は `200`、認証なしは `401`)。`ctx.httpGateway.headers` だけを見ていたため。`Content-Type` などの標準的なヘッダーは呼び出しそのもののヘッダーとして届くという情報(第三者のブログ)に合わせ、両方を合わせて渡す形にした。公式の記述は未確認。`If-Match` がどちらで届くかも未確認 | 作成・更新が `415` になる。`If-Match` が届かなければ、更新が `428` になり、削除は照合なしで消える | 両方を合わせて渡す形で直した。stg で `POST` が `201`、`If-Match` 付きの `PATCH` / `DELETE` が期待どおりになるかを確かめる |
 
 ### 13.1 確認済み事項
 
