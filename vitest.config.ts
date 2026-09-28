@@ -8,6 +8,7 @@ export default defineConfig({
       "packages/*/src/**/*.test.ts",
       "apps/api/*/src/**/*.test.ts",
       "apps/web/src/**/*.test.ts",
+      "apps/web/scripts/**/*.test.ts",
     ],
     exclude: [...configDefaults.exclude, "**/*.contract.test.ts"],
   },
