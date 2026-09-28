@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@memo/core": "*"
+    "@memo/core": "*",
+    "oracle-nosqldb": "^5.5.4"
   }
 }
