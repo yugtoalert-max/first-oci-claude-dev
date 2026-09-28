@@ -73,3 +73,71 @@ variable "nosql_storage_gbs" {
   type        = number
   default     = 1
 }
+
+variable "tenancy_ocid" {
+  description = "テナンシの OCID。動的グループを作る場所と、Object Storage の namespace を引くのに使う"
+  type        = string
+}
+
+variable "web_par_expires_at" {
+  description = "画面を配信する PAR の有効期限(RFC 3339。例: 2027-03-31T00:00:00Z)。過ぎると画面が表示されなくなる"
+  type        = string
+
+  validation {
+    condition     = can(formatdate("YYYY", var.web_par_expires_at))
+    error_message = "web_par_expires_at は RFC 3339 の日時で指定してください(例: 2027-03-31T00:00:00Z)。"
+  }
+}
+
+variable "cors_allowed_origins" {
+  description = "CORS で許可するオリジン。stg は手元の開発サーバー、prod は空(空なら CORS を設定しない)"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = !contains(var.cors_allowed_origins, "*")
+    error_message = "cors_allowed_origins に * は使えません。オリジンを個別に指定してください。"
+  }
+}
+
+variable "log_retention_days" {
+  description = "Functions と API Gateway のログの保持期間(日)。30 日単位で 180 日まで"
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = contains([30, 60, 90, 120, 150, 180], var.log_retention_days)
+    error_message = "log_retention_days は 30・60・90・120・150・180 のどれかにしてください。"
+  }
+}
+
+variable "vault_time_of_deletion" {
+  description = "destroy したときに Vault と鍵を削除する日時(RFC 3339)。destroy の前に 7 日より少し先の日時を入れて apply する。null なら OCI の既定(30 日後)"
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.vault_time_of_deletion == null || can(formatdate("YYYY", var.vault_time_of_deletion))
+    error_message = "vault_time_of_deletion は RFC 3339 の日時で指定してください。"
+  }
+}
+
+# ---- 2 回目の apply で入れる値(3 つとも入れるか、3 つとも省略する) ----
+
+variable "memo_api_image" {
+  description = "memo-api のイメージ(<リージョンキー>.ocir.io/<namespace>/<リポジトリ>:<タグ>)。push するまでは null"
+  type        = string
+  default     = null
+}
+
+variable "authorizer_image" {
+  description = "authorizer のイメージ。push するまでは null"
+  type        = string
+  default     = null
+}
+
+variable "auth_token_secret_id" {
+  description = "認証トークンを入れた Vault のシークレットの OCID。人が作るまでは null"
+  type        = string
+  default     = null
+}

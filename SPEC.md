@@ -43,7 +43,7 @@ authorizer Function ──▶ OCI Vault のシークレット(認証トークン
 - Function は **memo-api**(CRUD 全部)と **authorizer**(トークン照合)の 2 つ。コンテナイメージも 2 つ
   - memo-api は 1 つの Function で全ルートを受け、ルーティングはアダプター層で行う。理由: イメージの push は人の手作業なので数を減らしたい。コールドスタートも 1 つに集まる
 - フロントエンドと API が同じオリジンなので、**本番運用では CORS は不要**。CORS は stg で手元の開発サーバーから呼ぶためだけに使う([8 章](#8-cors))
-- ネットワーク(VCN・サブネット・Service Gateway)と NoSQL テーブルは `infra/` に作成済み。Functions・API Gateway・Vault・バケット・IAM はこれから Terraform に追加する
+- ネットワーク(VCN・サブネット・Service Gateway)と NoSQL テーブルは `infra/` に作成済み。Functions・API Gateway・Vault・バケット・コンテナリポジトリ・IAM・ログは、第6回で `infra/` の Terraform に追加した([9.6](#96-インフラterraform仮置き))
 
 ### 2.1 リポジトリ構成(仮置き)
 
@@ -311,6 +311,7 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - シークレットの値がトークンの形式(base64url で 43 文字以上 = 32 バイト以上)でなければ、設定の誤りとして例外を投げる(`502`)**(仮置き)**。前後の空白や改行は取り除かない(登録のときの誤りに気づけるように)。例外のメッセージとログにシークレットの値を含めない
   - シークレットの値は、Vault の現在のバージョン(`CURRENT`)を base64 から UTF-8 に戻したもの。SDK の `SecretsClient` はリソースプリンシパルで認証し、リージョンもリソースプリンシパルのものを使う。最初に Vault を読むときに作る **(仮置き)**
 - 注意: Vault の削除は即時ではなく、猶予期間 7〜30 日(既定 30 日)を経てから消える。Terraform では最短の 7 日を指定する **(仮置き)**。`terraform destroy` の直後に同じ名前で作り直すと失敗しうる。infra/README.md に追記すること
+  - 指定の方法 **(仮置き)**: Vault と鍵の `time_of_deletion` を変数 `vault_time_of_deletion`(既定 `null` = OCI の既定の 30 日)で渡す。destroy の前に、人が 7 日より少し先の日時を入れて apply してから destroy する(infra/README.md)。この値が destroy で使われるかは未確定([13 章](#13-未確定事項要検証) の 9)
 
 ## 8. CORS
 
@@ -399,6 +400,7 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - authorizer: 対象シークレットの読み取り
   - API Gateway: 対象 Functions の呼び出し
   - 権限は必要最小限にする
+  - 書き方は [9.6](#96-インフラterraform仮置き) の IAM を参照
 
 ### 9.3 テスト方針
 
@@ -446,6 +448,53 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - イメージ名は `memo-api:local` と `memo-authorizer:local`。namespace などの環境固有の値は入れない。push するときは、人がリポジトリの名前とタグを付け直す
 - `func.yaml` は `runtime: docker`・メモリ 256MB・タイムアウト 30 秒。`fn build` はバンドルを実行しないので、イメージは `npm run build:functions` で作る。シェイプと Function の設定は Terraform で設定する
 - 手元での確認: `scripts/fdk-smoke.cjs` をコンテナに渡し、エントリポイントを FDK の `http-stream` 形式で起動して 1 回呼び出す(OCI には接続しない)。リソースプリンシパルがないので、NoSQL と Vault を使う呼び出しは `502` になる
+
+### 9.6 インフラ(Terraform)(仮置き)
+
+第6回で `infra/` に追加したものの決め事。手順は `infra/README.md`。印のないものも、この節はすべて **(仮置き)**。
+
+- モジュールの分け方: `modules/web_bucket`(バケット・PAR)、`modules/vault`(Vault・鍵)、`modules/functions`(OCIR のリポジトリ・アプリケーション・Function・呼び出しログ)、`modules/iam`(動的グループ・ポリシー)、`modules/api_gateway`(ゲートウェイ・デプロイメント・アクセスログと実行ログ)。ロググループは `envs/stg` に 1 つ置き、各モジュールに渡す
+- **2 段階の apply**(決定): `memo_api_image`・`authorizer_image`・`auth_token_secret_id` の 3 つがそろったときだけ、Function・API Gateway のデプロイメント・デプロイメントのログ・シークレットの読み取りのポリシー文を作る
+  - 一部だけ入れたときは、黙って 1 回目の状態のままにせず、plan を失敗させる(`envs/stg` の namespace のデータソースの precondition)
+  - API Gateway のゲートウェイ本体は Function に依存しないので 1 回目で作る(ホスト名を先に決め、`cors_allowed_origins` や `apps/web/.env` を準備できるようにするため)
+- 変数(`envs/stg`)
+  - 追加: `tenancy_ocid`(動的グループを作る場所。namespace の取得にも使う)、`web_par_expires_at`(RFC 3339)、`cors_allowed_origins`(`*` を拒否する)、`log_retention_days`(既定 30。30 日単位で 180 日まで)、`vault_time_of_deletion`(既定 `null`)、`memo_api_image`・`authorizer_image`・`auth_token_secret_id`(既定 `null`)
+  - Object Storage の namespace は tfvars で渡さず、データソース `oci_objectstorage_namespace` で引く(値をファイルに書かずに済むため)
+- 名前: リソースの表示名は `<project>-<env>-...`。バケットは `<project>-<env>-web`、OCIR のリポジトリは `<project>-<env>/memo-api` と `<project>-<env>/authorizer`(環境ごとに分ける。prod には stg で確かめたイメージを同じダイジェストのまま付け直して push する)、Function の表示名は `func.yaml` の `name` と同じ `memo-api` と `authorizer`
+- OCIR のリポジトリ: 非公開(`is_public = false`)。タグの上書きは禁止しない(`is_immutable` は既定の `false`)
+- Function: イメージは `source_details`(`CONTAINER_IMAGE`)で渡す(`image` 属性はプロバイダで非推奨のため)
+- Vault の鍵: HSM 保護の AES 256 ビット。シークレットの暗号化にソフトウェア保護の鍵を使えるかは未確認で、HSM 保護でも費用は無料枠内のため([13.1](#131-確認済み事項))
+- シークレット: 名前は `<project>-<env>-auth-token`。人が OCI CLI の `oci vault secret create-base64` で作る。トークンは権限 600 の一時ファイルに作り、`--secret-content-content file://...` で渡す(値を画面・シェルの履歴・コマンドラインの引数に出さないため)
+- 画面の配信
+  - PAR は `AnyObjectRead`・`bucket_listing_action = Deny`。URL(`full_path`)はモジュールの出力で `sensitive` にし、デプロイメントにも sensitive のまま渡す(plan の表示に出さない)。ルートの output `web_par_base_url` も sensitive
+  - `/` は `<PAR の URL>index.html`、`/{path*}` は `<PAR の URL>${request.path[path]}`。どちらも `GET` だけ
+- API Gateway のデプロイメント
+  - パスの接頭辞は `/`。デプロイメントの `authentication` に authorizer(`CUSTOM_AUTHENTICATION`、`parameters = { authorization = "request.headers[Authorization]" }`、`cache_key = ["authorization"]`)を置き、`is_anonymous_access_allowed = true` にする。`/api` のルートは `AUTHENTICATION_ONLY`、画面のルートは `ANONYMOUS`
+  - `/api/memos` は `GET`・`POST`、`/api/memos/{id}` は `GET`・`PATCH`・`DELETE`
+  - CORS は `cors_allowed_origins` が空でなければ、デプロイメントの `request_policies.cors` に 8 章の値で設定する。`is_allow_credentials_enabled = false`
+  - 実行ログのレベルは `INFO`
+- IAM
+  - 動的グループ: `ALL {resource.type = 'fnfunc', resource.compartment.id = '<stg コンパートメント>'}`。`oci_identity_dynamic_group` でテナンシに作る
+  - ポリシーでは動的グループを `dynamic-group id <OCID>` で書く。Identity Domains のテナンシでは、名前で書くとドメイン名(`'<ドメイン>'/'<名前>'`。省略すると Default)が関わるため。`oci_identity_dynamic_group` で作った動的グループが Default ドメインに入るかは未確定([13 章](#13-未確定事項要検証) の 12)
+  - 動的グループはコンパートメントの Functions 全体なので、**memo-api と authorizer は同じ権限を持つ**(関数ごとには分けない)。代わりに条件で対象を絞る
+  - ポリシーの文(stg コンパートメントに付ける)
+    - `Allow dynamic-group id <DG> to manage nosql-rows in compartment id <C> where target.nosql-table.name = '<テーブル>'`(削除に `NOSQL_ROWS_DELETE` が要るので `manage`)
+    - `Allow dynamic-group id <DG> to read secret-bundles in compartment id <C> where target.secret.id = '<シークレット>'`(2 回目の apply から)
+    - `Allow any-user to use functions-family in compartment id <C> where ALL {request.principal.type = 'ApiGateway', request.resource.compartment.id = '<C>'}`
+  - OCIR からイメージを取得するためのポリシーは作らない。Functions のポリシーのドキュメントに、同じテナンシのリポジトリから取得するための `service faas` の文がないため(署名の検証を使うときの鍵の読み取りだけ)
+  - API Gateway のモジュールは IAM のモジュールに `depends_on` し、呼び出しの権限ができてからデプロイメントを作る
+- ログ: ロググループ `<project>-<env>-logs` に、Function の呼び出しログ(`functions` / `invoke`、アプリケーション単位)と、API Gateway のアクセスログ・実行ログ(`apigateway` / `access`・`execution`、デプロイメント単位)を置く。保持期間は `log_retention_days`
+- 参照した公式ドキュメント
+  - 動的グループのルール: https://docs.oracle.com/en-us/iaas/Content/Functions/Tasks/functionsaccessingociresources.htm
+  - ポリシーの主体の書き方(Identity Domains): https://docs.oracle.com/en-us/iaas/Content/Identity/policysyntax/subject.htm
+  - 動的グループのリソース(テナンシに作る): https://docs.oracle.com/en-us/iaas/tools/terraform-provider-oci/latest/docs/r/identity_dynamic_group.html
+  - NoSQL のポリシー: https://docs.oracle.com/en-us/iaas/nosql-database/doc/policy-reference.html
+  - Vault のポリシー: https://docs.oracle.com/en-us/iaas/Content/Identity/Reference/keypolicyreference.htm
+  - API Gateway から Functions を呼び出すポリシー: https://docs.oracle.com/iaas/Content/APIGateway/Tasks/apigatewaycreatingpolicies.htm#dynamicgrouppolicy
+  - Functions のポリシー: https://docs.oracle.com/en-us/iaas/Content/Functions/Tasks/functionscreatingpolicies.htm
+  - Vault の削除: https://docs.oracle.com/en-us/iaas/Content/KeyManagement/Tasks/managingvaults_topic-To_delete_a_vault.htm
+  - ログの種類: https://docs.oracle.com/en-us/iaas/Content/Logging/Reference/details_for_functions.htm 、https://docs.oracle.com/en-us/iaas/Content/Logging/Reference/details_for_api_gateway.htm
+  - API Gateway のログのポリシー: https://docs.oracle.com/en-us/iaas/Content/APIGateway/Tasks/apigatewayaddinglogpolicies.htm
 
 ## 10. フロントエンド
 
@@ -594,6 +643,9 @@ stg と prod で違ってよいのは、次の表の値だけ。**ここにな�
 | 認証トークンのシークレットの OCID | `terraform.tfvars` | |
 | ログの保持期間 | `terraform.tfvars` | |
 | PAR の有効期限 | `terraform.tfvars` | |
+| テナンシの OCID | `terraform.tfvars` | 動的グループを作る場所 **(仮置き)** |
+| Function のイメージの参照(`memo_api_image` / `authorizer_image`) | `terraform.tfvars` | リポジトリが環境ごとに違うのでパスは変わる。ダイジェストは同じにする(下の注) **(仮置き)** |
+| Vault と鍵の削除日時(`vault_time_of_deletion`) | `terraform.tfvars` | destroy の前にだけ入れる **(仮置き)** |
 | namespace、バケット名、OCI CLI のプロファイル、リージョン | `.env`(配置スクリプト用) | |
 | `VITE_API_BASE_URL` | `apps/web/.env` | 手元の開発のみ |
 
@@ -626,6 +678,13 @@ CLAUDE.md の方針どおり、クラウドに変更を加える操作は人が�
 | 6 | API Gateway から Function に届く `Fn-Http-Request-Url` の形(パスとクエリ文字列だけか、スキームとホスト付きか。デプロイメントのパスの接頭辞を含むか) | ルーティングできず、すべて `404` になる | 届いた形に合わせて `fdk-bridge.ts` の変換を直す |
 | 7 | memo-api の `204` に FDK が付ける `Content-Type: application/json` が、API Gateway を通してもクライアントに届くか | ボディのない応答に Content-Type が付く(クライアントは 204 のボディを読まないので、動作への影響は小さい) | 既知の制約として残す、または API Gateway のレスポンスヘッダーの変換で消す |
 | 8 | ログのリクエスト ID(`Fn-Call-Id`)と、API Gateway がクライアントに返す `opc-request-id` を突き合わせられるか | 画面で見たエラーから、ログをたどりにくい | `opc-request-id` もログに出す |
+| 9 | Vault と鍵の `time_of_deletion` を apply で入れておくと、`terraform destroy` の削除の予約にその日時が使われるか(プロバイダのドキュメントには書式しか書かれていない) | 猶予期間が既定の 30 日になり、その間コンパートメントを消せない・作り直せない可能性 | destroy の前に OCI CLI(`oci kms management vault schedule-deletion --time-of-deletion`)で予約し、`terraform state rm` で state から外す手順に変える |
+| 10 | 削除待ちの Vault と鍵(と、人が作ったシークレット)がコンパートメントにあるあいだに、コンパートメントを削除できるか。シークレットは Vault と一緒に消えるか | `terraform destroy` がコンパートメントの削除で失敗する | 猶予期間が過ぎてからもう一度 destroy する。常に困るなら、Vault をこのリポジトリ専用の親コンパートメントに置く |
+| 11 | API Gateway のログの category の値の大文字・小文字(ドキュメントの表は `Access` / `Execution`。Terraform では `access` / `execution` と書いた) | 2 回目の apply でログの作成が失敗する | 失敗したら表の表記(`Access` / `Execution`)に変える。`oci logging service list` で確かめられる |
+| 12 | Identity Domains のテナンシで、`oci_identity_dynamic_group`(従来の IAM API)で作った動的グループが Default ドメインに入り、ポリシー(`dynamic-group id <OCID>`)で使えるか | Function から NoSQL と Vault に接続できない(`502`) | `oci_identity_domains_dynamic_resource_group` で Identity Domain に作る形に変える(ドメインの URL を tfvars で渡す) |
+| 13 | `is_anonymous_access_allowed = true` のとき、`Authorization` ヘッダーのない `/api` へのリクエストが(`AUTHENTICATION_ONLY` のルートで)`401` になるか | 認証なしで API に届く(memo-api は認証を見ないので、誰でも読み書きできる) | 画面と API を別のデプロイメントに分け、API のデプロイメントでは匿名のアクセスを許さない |
+| 14 | デプロイメントのパスの接頭辞に `/` を使えるか。`/{path*}` と `/api/...` の両方が期待どおりに振り分けられるか | デプロイメントを作れない、または画面か API に届かない | パスの接頭辞を分ける(例: `/app` と `/api`)。仕様(同一オリジンの URL)の見直しを伴う |
+| 15 | 同じテナンシの非公開の OCIR のリポジトリから、ポリシーなしで Function がイメージを取得できるか | Function の呼び出しが失敗する | 取得のためのポリシーを公式ドキュメントで確かめて追加する |
 
 ### 13.1 確認済み事項
 
