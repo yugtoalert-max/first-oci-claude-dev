@@ -8,7 +8,9 @@
     "./handler": "./src/handler.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bundle": "node ../../../scripts/bundle-function.mjs",
+    "build:function": "npm run bundle && docker build --platform linux/arm64 -t memo-api:local ."
   },
   "dependencies": {
     "@fnproject/fdk": "^0.0.108",
