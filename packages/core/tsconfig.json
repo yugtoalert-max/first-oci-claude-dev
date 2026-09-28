@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // core は API(Node.js)とフロントエンド(ブラウザ)の両方で使う。
+    // 両方にある atob / btoa / TextEncoder の型のために DOM を入れる
+    "lib": ["ES2022", "DOM"],
+    "types": []
+  },
+  "include": ["src"]
+}
