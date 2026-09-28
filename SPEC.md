@@ -470,7 +470,7 @@ CLAUDE.md の方針どおり、クラウドに変更を加える操作は人が�
 | Vault へのトークンの登録・更新 | 人 |
 | `npm run deploy:web` / `npm run clean:web` | 人 |
 
-- **CLAUDE.md の「人が実行する」操作に、フロントエンドのアップロードと削除を追加する必要がある**(別の PR で行う)
+- 上の表の操作は、CLAUDE.md の「人が実行する」ルールに反映済み(Vault へのトークンの登録・更新、`npm run deploy:web` / `npm run clean:web` を含む)
 
 ## 13. 未確定事項(要検証)
 
