@@ -10,6 +10,7 @@ declare module "@fnproject/fdk" {
 
   export type Context = {
     readonly callID: string | null;
+    readonly headers: Record<string, string[]>;
     readonly httpGateway: HTTPGatewayContext;
   };
 
