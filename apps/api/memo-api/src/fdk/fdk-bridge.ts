@@ -1,6 +1,7 @@
 // FDK(@fnproject/fdk)の HTTP Gateway 経由の呼び出しと、アダプター層(createHandler)をつなぐ。
 // FDK は API Gateway のリクエストを Fn-Http-Method / Fn-Http-Request-Url / Fn-Http-H-* のヘッダーで受け取り、
-// httpGateway から読めるようにしている。レスポンスのステータスとヘッダーも httpGateway に設定する
+// httpGateway から読めるようにしている。ただし Content-Type などは Fn-Http-H- が付かず、
+// 呼び出しそのもののヘッダー(ctx.headers)として届く。レスポンスのステータスとヘッダーは httpGateway に設定する
 import type { createHandler } from "../handler";
 import type { HttpRequest, HttpResponse } from "../http";
 
@@ -19,6 +20,8 @@ export type FdkHttpGateway = {
 /** FDK の Context のうち、ここで使う部分 */
 export type FdkContext = {
   readonly callID: string | null;
+  /** 呼び出しそのもののヘッダー。Fn- で始まる内部用のものも含む。名前は先頭大文字の形にそろっている */
+  readonly headers: Record<string, string[]>;
   readonly httpGateway: FdkHttpGateway;
 };
 
@@ -35,6 +38,16 @@ function pathAndQuery(url: string): string {
 }
 
 /**
+ * 呼び出しそのもののヘッダー(Fn- で始まるものを除く)と httpGateway.headers を合わせる。
+ * 同じ名前が両方にあれば httpGateway 側を使う(API Gateway が受け取ったヘッダーそのもののため)。
+ * FDK が両方の名前を先頭大文字の形にそろえるので、名前はそのまま比べる
+ */
+function mergeHeaders(ctx: FdkContext): Record<string, string[]> {
+  const invocation = Object.entries(ctx.headers).filter(([key]) => !key.startsWith("Fn-"));
+  return { ...Object.fromEntries(invocation), ...ctx.httpGateway.headers };
+}
+
+/**
  * FDK の入力をアダプター層のリクエストにする。
  * リクエスト ID には FDK の呼び出し ID(Fn-Call-Id)を使う(SPEC 9.4)
  */
@@ -44,7 +57,7 @@ export function toHttpRequest(body: string, ctx: FdkContext): HttpRequest {
     requestId: required(ctx.callID, "call ID"),
     method: required(gateway.method, "method"),
     url: pathAndQuery(required(gateway.requestURL, "request URL")),
-    headers: gateway.headers,
+    headers: mergeHeaders(ctx),
     body,
   };
 }
