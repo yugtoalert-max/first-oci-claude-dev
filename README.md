@@ -8,6 +8,26 @@ Claude Code に書かせ、Git で履歴とレビューを残し、Terraform で
 - 手順は macOS を前提にしています
 - クラウドへの作成・削除(`terraform apply` / `destroy`)とイメージの push は人が実行し、Claude Code には実行させません
 
+## テスト
+
+```sh
+npm install
+npm test            # Docker 不要のテスト
+npm run typecheck   # 型検査
+```
+
+NoSQL リポジトリの契約テストは、ローカルの Docker で動かす Oracle NoSQL Database CE(KVLite)に対して実行します。
+
+```sh
+npm run kvlite:up       # KVLite のコンテナ(memo-kvlite、ポート 8080)を起動
+npm run test:contract   # 契約テスト(起動直後は KVLite の準備ができるまで最大 2 分待ちます)
+npm run kvlite:down     # コンテナを停止して削除
+```
+
+- イメージは `ghcr.io/oracle/nosql:latest-ce` です。Apple Silicon の Mac では Colima で動作を確認しています
+- ポート 8080 が使えないときは、`kvlite:up` のポートを変えて起動し、`KVLITE_ENDPOINT=http://localhost:<ポート> npm run test:contract` で接続先を渡します
+- テストは KVLite に `memos_contract_test` テーブルを作り、テストごとに中身を消します。コンテナを削除すればテーブルも消えます
+
 ## ライセンス
 
 [MIT](LICENSE)

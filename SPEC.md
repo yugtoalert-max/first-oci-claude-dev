@@ -60,6 +60,7 @@ infra/             Terraform(既存)
 ```
 
 - TypeScript は `strict: true`
+  - `packages/core` と `apps/api/*` は Node.js の型(`@types/node`)を使い、tsconfig の `lib` に DOM を入れない **(仮置き)**。core のブラウザでの型は、フロントエンドの tsconfig で検査する
 - テストランナーは Vitest
 - Node.js のバージョンは、OCI Functions の Node FDK が対応する最新の LTS **(仮置き)**
   - 現時点では固定していない(`engines` や `.nvmrc` を置いていない)。FDK との接続と func.yaml を作るときに、FDK の対応状況を確認して固定する **(仮置き)**
@@ -99,6 +100,7 @@ infra/             Terraform(既存)
 ### 3.4 バージョン(楽観ロック)
 
 - NoSQL の行バージョン(バイナリ)を base64url にした文字列を、ドメインでは中身を見ない文字列(opaque)として扱う
+  - リポジトリが作れない形の文字列(base64url として読めない、または Buffer に戻して base64url にし直すと元と一致しない)は、どの行のバージョンとも一致しないものとして扱う **(仮置き)**。NoSQL には渡さない。更新は `conflict`、削除は行の有無を読み取って `not_found` か `conflict` にする
 - HTTP では強い ETag として返す: `ETag: "<base64url>"`(ダブルクォートで囲む。`W/` は付けない)
 - ETag はレスポンスヘッダーだけで返し、ボディには含めない。一覧の各要素にも含めない
 
@@ -347,6 +349,16 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
 - NoSQL への認証: **リソースプリンシパル**(Function 自身の ID で認証する方式)。API キーは Function に置かない
 - NoSQL クライアントはモジュールのスコープで 1 回だけ作り、以降の呼び出しでも使い回す
 - SDK の自動リトライは**合計 5 秒で打ち切る**。打ち切ったら `429` + `Retry-After`
+  - SDK の `timeout`(リトライとその待ち時間を含めた累積)に 5 秒を使う。クライアントの設定と、リポジトリの各操作のオプションの両方で渡す(クライアントを差し替えても打ち切り時間が変わらないように)**(仮置き)**
+  - 5 秒は SDK の呼び出し 1 回ごと **(仮置き)**。一覧では文の準備(`prepare`)と、結果が複数回に分かれて返ったときの各回がそれぞれ 5 秒になり、合計は 5 秒を超えうる
+  - スロットリングとして扱うのは `READ_LIMIT_EXCEEDED` と `WRITE_LIMIT_EXCEEDED`、およびそれが原因で打ち切り時間に達した `NoSQLTimeoutError`(`cause` がスロットリング)**(仮置き)**。原因がスロットリングでない打ち切り(ネットワークエラーなど)と、DDL などの `OPERATION_LIMIT_EXCEEDED` は想定外の失敗(`500`)にする
+  - SDK の既定のリトライ回数の上限(10 回)と待ち時間(200ms からの指数バックオフ)は変えない **(仮置き)**。先に回数の上限に達したときは、スロットリングのエラーがそのまま届くので、同じく `Throttled` にする
+- リポジトリの実装 **(仮置き)**
+  - NoSQL クライアントはコンストラクタで受け取る(テストでは偽物か KVLite 用のクライアントを渡す)。本番用の設定は `cloudNoSqlConfig({ compartment })`(リソースプリンシパル。リージョンはリソースプリンシパルのものを使うので指定しない)で作る
+  - 一覧の文は `prepare` し、リポジトリのインスタンスの中で使い回す。呼び出しごとに `copyStatement()` で複製してから値を入れる
+  - 条件付き削除は `deleteIfVersion` に `returnExisting: true` を付け、失敗したときに既存の行のバージョンが返れば `conflict`、返らなければ `not_found` とする
+  - テーブル名は文に埋め込むので、`^[A-Za-z][A-Za-z0-9_]*$` に合わない名前はコンストラクタで拒否する
+  - `insert` で id が重複したら(`putIfAbsent` の失敗)例外を投げる(`500`)。インメモリの偽物と同じ
 - Function の設定: memo-api・authorizer ともに、タイムアウト 30 秒、メモリ 256MB
 - テーブル名やコンパートメントは、Function の設定(環境変数)で渡す
 - IAM(Terraform で作る)
@@ -374,6 +386,10 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
     - 存在しない id
   - インメモリの偽物は、行バージョンを「書き込むたびに変わる opaque な文字列」として再現する
   - 実行コマンドを分ける **(仮置き)**: `npm test` は Docker 不要のテストだけ、`npm run test:contract` は KVLite を使う
+    - KVLite を使うテストのファイル名は `*.contract.test.ts` にする。`npm test` はこれを除外する **(仮置き)**
+    - KVLite の起動と停止は `npm run kvlite:up` / `npm run kvlite:down`(コンテナ名 `memo-kvlite`、ポート 8080)**(仮置き)**。接続先は環境変数 `KVLITE_ENDPOINT` で変えられる(既定 `http://localhost:8080`)
+    - テスト用のテーブル `memos_contract_test` を KVLite に作り、テストごとに `DELETE FROM` で空にする **(仮置き)**。DDL は `apps/api/memo-api/src/nosql/memos-table.ts` に置き、`infra/modules/nosql/main.tf` の DDL と列・型・主キーが同じことを `npm test` で確かめる
+  - SDK をまねた偽物のクライアントを使うテスト(バージョンの変換、打ち切り時間、スロットリングの変換、一覧の文)は、Docker 不要のテストとして `npm test` で実行する **(仮置き)**。スロットリングは KVLite では起こせないため
 - authorizer: 照合ロジック(ヘッダーの解釈、比較、キャッシュ)を関数として切り出してテストする。Vault からの取得は差し替えられるようにする
 
 ### 9.4 ログ
@@ -508,6 +524,7 @@ CLAUDE.md の方針どおり、クラウドに変更を加える操作は人が�
 |---|---|---|
 | 2026-09-28 | Vault の費用(Oracle 公式 FAQ と公開価格 API) | シークレットの保管は無料。共有型 Vault(`DEFAULT`)は作成無料で、鍵のバージョン数で課金される(ソフトウェア保護は無料、HSM 保護は 20 バージョンまで無料)。専用型は 1 時間 ¥577.22。削除猶予期間は 7〜30 日(既定 30 日)。今回の構成は月 0 円。シークレットの暗号化にソフトウェア保護の鍵を使えるかは未確認だが、HSM 保護でも無料枠内なので費用の結論は変わらない |
 | 2026-09-28 | KVLite(`ghcr.io/oracle/nosql:latest-ce`)が Apple Silicon の Mac で動くか | arm64 版のイメージがあり、Colima で起動できた。Node.js SDK(`oracle-nosqldb`)で次を確認: get の version は Buffer、現在のバージョンでの putIfVersion は成功してバージョンが変わる、古いバージョンでの putIfVersion / deleteIfVersion は `success: false`、PK 単独のテーブルで `WHERE id < $after ORDER BY id DESC LIMIT $lim` により次のページが取れる。行バージョンの形式はクラウドと違う可能性があるが、opaque として扱うので問題ない |
+| 2026-09-28 | KVLite に対するリポジトリの契約テスト(`npm run test:contract`) | 契約テストがすべて通った。加えて次を確認: `deleteIfVersion` に `returnExisting: true` を付けると、バージョン違いでは既存のバージョンが返り、行がなければ返らない(not_found と conflict を区別できる)。`DELETE FROM <table>` で全行を削除できる。`TIMESTAMP(3)` はミリ秒まで保たれる。limit 50 + 1 件の一覧が id の降順で返る。クラウドでの振る舞いは未確認 |
 
 ## 14. 範囲外
 
