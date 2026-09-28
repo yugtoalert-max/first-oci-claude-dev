@@ -19,7 +19,10 @@ function fakeContext(
     callID?: string | null;
     requestURL?: string | null;
     method?: string | null;
+    /** httpGateway.headers(Fn-Http-H- 付きで届いたヘッダー) */
     headers?: Record<string, string[]>;
+    /** ctx.headers(呼び出しそのもののヘッダー) */
+    invocationHeaders?: Record<string, string[]>;
   } = {},
 ): FdkContext & { httpGateway: FakeGateway } {
   const responseHeaders: Record<string, string[]> = {};
@@ -33,7 +36,11 @@ function fakeContext(
     },
     responseHeaders,
   };
-  return { callID: options.callID === undefined ? "call-1" : options.callID, httpGateway };
+  return {
+    callID: options.callID === undefined ? "call-1" : options.callID,
+    headers: options.invocationHeaders ?? {},
+    httpGateway,
+  };
 }
 
 describe("toHttpRequest", () => {
@@ -58,6 +65,44 @@ describe("toHttpRequest", () => {
     const ctx = fakeContext({ requestURL: "https://example.com/api/memos?limit=2&cursor=x" });
 
     expect(toHttpRequest("", ctx).url).toBe("/api/memos?limit=2&cursor=x");
+  });
+
+  it("呼び出しそのもののヘッダー(Content-Type など Fn-Http-H- が付かずに届くもの)も渡す", () => {
+    const ctx = fakeContext({
+      method: "PATCH",
+      headers: { Authorization: ["Bearer x"] },
+      invocationHeaders: { "Content-Type": ["application/json"], "If-Match": ['"a"'] },
+    });
+
+    expect(toHttpRequest("{}", ctx).headers).toEqual({
+      Authorization: ["Bearer x"],
+      "Content-Type": ["application/json"],
+      "If-Match": ['"a"'],
+    });
+  });
+
+  it("呼び出しそのもののヘッダーのうち、Fn- で始まる内部用のものは渡さない", () => {
+    const ctx = fakeContext({
+      invocationHeaders: {
+        "Fn-Call-Id": ["call-1"],
+        "Fn-Deadline": ["2026-09-28T00:00:00Z"],
+        "Fn-Http-Method": ["GET"],
+        "Fn-Http-Request-Url": ["/api/memos"],
+        "Fn-Http-H-Authorization": ["Bearer x"],
+        Accept: ["application/json"],
+      },
+    });
+
+    expect(toHttpRequest("", ctx).headers).toEqual({ Accept: ["application/json"] });
+  });
+
+  it("同じ名前のヘッダーが両方にあれば、httpGateway 側を使う", () => {
+    const ctx = fakeContext({
+      headers: { "Content-Type": ["text/plain"] },
+      invocationHeaders: { "Content-Type": ["application/json"] },
+    });
+
+    expect(toHttpRequest("", ctx).headers).toEqual({ "Content-Type": ["text/plain"] });
   });
 
   it.each([
@@ -121,6 +166,19 @@ describe("createFdkHandler", () => {
     expect(ctx.httpGateway.responseHeaders["ETag"]).toHaveLength(1);
     expect(JSON.parse(body)).toMatchObject({ title: "買い物", body: "" });
     expect(JSON.parse(logs[0] ?? "")).toMatchObject({ requestId: "call-42", status: 201 });
+  });
+
+  it("Content-Type が呼び出しそのもののヘッダーとして届いた POST も作成できる(415 にしない)", async () => {
+    const { fdkHandler } = setup();
+    const ctx = fakeContext({
+      method: "POST",
+      requestURL: "/api/memos",
+      invocationHeaders: { "Content-Type": ["application/json"], "Fn-Call-Id": ["call-1"] },
+    });
+
+    await fdkHandler(JSON.stringify({ title: "買い物" }), ctx);
+
+    expect(ctx.httpGateway.statusCode).toBe(201);
   });
 
   it("204 はボディを空文字で返す", async () => {
