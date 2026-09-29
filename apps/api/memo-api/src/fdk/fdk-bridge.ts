@@ -72,13 +72,46 @@ export function writeHttpResponse(response: HttpResponse, gateway: FdkHttpGatewa
   return response.body;
 }
 
+/** 名前を大文字・小文字を区別せずに探す。なければ null */
+function valuesOf(headers: Record<string, string[]>, name: string): string[] | null {
+  const lower = name.toLowerCase();
+  const found = Object.entries(headers).find(([key]) => key.toLowerCase() === lower);
+  return found ? found[1] : null;
+}
+
+function describeHeaders(headers: Record<string, string[]>) {
+  return {
+    names: Object.keys(headers).sort(),
+    contentType: valuesOf(headers, "Content-Type"),
+    ifMatch: valuesOf(headers, "If-Match"),
+  };
+}
+
+/**
+ * 一時的な診断(SPEC 13 章の 16)。どのヘッダーがどちらの経路で届くかを調べるため、
+ * 両方のヘッダーの名前と、Content-Type・If-Match の値だけを返す(Authorization などの値は出さない)。
+ * 原因がわかったら外す
+ */
+export function describeRequestHeaders(ctx: FdkContext) {
+  return {
+    diagnostic: "request-headers",
+    requestId: ctx.callID,
+    invocation: describeHeaders(ctx.headers),
+    gateway: describeHeaders(ctx.httpGateway.headers),
+  };
+}
+
 /**
  * fdk.handle に渡す関数を作る。入力は文字列で受け取る(inputMode: "string")。
  * ボディは rawResult で返す。文字列のまま返すと、FDK は応答の Content-Type が JSON のとき
  * もう一度 JSON.stringify してから書き出すため(ボディが JSON の文字列リテラルになる)
  */
-export function createFdkHandler(handle: Handler): (body: string, ctx: FdkContext) => Promise<RawResult> {
+export function createFdkHandler(
+  handle: Handler,
+  options: { logDiagnostic?: (line: string) => void } = {},
+): (body: string, ctx: FdkContext) => Promise<RawResult> {
   return async (body, ctx) => {
+    options.logDiagnostic?.(JSON.stringify(describeRequestHeaders(ctx)));
     const response = await handle(toHttpRequest(body, ctx));
     return rawResult(writeHttpResponse(response, ctx.httpGateway));
   };

@@ -31,6 +31,8 @@ function getFdkHandler(): ReturnType<typeof createFdkHandler> {
       log: (line) => console.log(line),
       timer: () => performance.now(),
     }),
+    // 一時的な診断(SPEC 13 章の 16)。原因がわかったら外す
+    { logDiagnostic: (line) => console.log(line) },
   );
   return fdkHandler;
 }
