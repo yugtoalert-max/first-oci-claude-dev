@@ -43,6 +43,27 @@ function fakeContext(
   };
 }
 
+/**
+ * FDK が応答のボディに書き出す内容。FDK は rawResult などの結果を writeResult で書き出す
+ * (それ以外の値は、応答の Content-Type が JSON なら JSON.stringify してから書き出す)
+ */
+function writtenBody(result: unknown): string {
+  if (typeof result !== "object" || result === null || !("writeResult" in result)) {
+    throw new Error("not an FDK result such as rawResult");
+  }
+  const chunks: string[] = [];
+  (result.writeResult as (ctx: unknown, resp: { write(chunk: string): boolean }) => void)(
+    {},
+    {
+      write(chunk) {
+        chunks.push(chunk);
+        return true;
+      },
+    },
+  );
+  return chunks.join("");
+}
+
 describe("toHttpRequest", () => {
   it("メソッド・URL・ヘッダー・ボディと、リクエスト ID(FDK の呼び出し ID)を取り出す", () => {
     const ctx = fakeContext({
@@ -158,13 +179,13 @@ describe("createFdkHandler", () => {
       headers: { "Content-Type": ["application/json"] },
     });
 
-    const body = await fdkHandler(JSON.stringify({ title: "買い物" }), ctx);
+    const result = await fdkHandler(JSON.stringify({ title: "買い物" }), ctx);
 
     expect(ctx.httpGateway.statusCode).toBe(201);
     expect(ctx.httpGateway.responseHeaders["Content-Type"]).toEqual(["application/json"]);
     expect(ctx.httpGateway.responseHeaders["Location"]?.[0]).toMatch(/^\/api\/memos\/[0-9A-Z]{26}$/);
     expect(ctx.httpGateway.responseHeaders["ETag"]).toHaveLength(1);
-    expect(JSON.parse(body)).toMatchObject({ title: "買い物", body: "" });
+    expect(JSON.parse(writtenBody(result))).toMatchObject({ title: "買い物", body: "" });
     expect(JSON.parse(logs[0] ?? "")).toMatchObject({ requestId: "call-42", status: 201 });
   });
 
@@ -191,9 +212,33 @@ describe("createFdkHandler", () => {
     const location = created.httpGateway.responseHeaders["Location"]?.[0] ?? "";
 
     const ctx = fakeContext({ method: "DELETE", requestURL: location });
-    const body = await fdkHandler("", ctx);
+    const result = await fdkHandler("", ctx);
 
     expect(ctx.httpGateway.statusCode).toBe(204);
-    expect(body).toBe("");
+    expect(writtenBody(result)).toBe("");
+  });
+
+  it("アダプター層の JSON のボディを、FDK にもう一度 JSON にさせずにそのまま書き出す", async () => {
+    const { fdkHandler } = setup();
+    const ctx = fakeContext({
+      method: "POST",
+      headers: { "Content-Type": ["application/json"] },
+    });
+
+    const result = await fdkHandler(JSON.stringify({ title: "買い物" }), ctx);
+
+    const written = writtenBody(result);
+    expect(written.startsWith("{")).toBe(true);
+    expect(typeof JSON.parse(written)).toBe("object");
+  });
+
+  it("problem+json のボディも、そのまま書き出す", async () => {
+    const { fdkHandler } = setup();
+    const ctx = fakeContext({ method: "GET", requestURL: "/api/memos/01ARZ3NDEKTSV4RRFFQ69G5FAV" });
+
+    const result = await fdkHandler("", ctx);
+
+    expect(ctx.httpGateway.statusCode).toBe(404);
+    expect(JSON.parse(writtenBody(result))).toMatchObject({ status: 404, code: "NOT_FOUND" });
   });
 });
