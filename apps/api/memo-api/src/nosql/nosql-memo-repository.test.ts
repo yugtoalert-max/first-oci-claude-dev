@@ -1,5 +1,5 @@
 import type { Memo } from "@memo/core";
-import { ErrorCode, NoSQLError, NoSQLTimeoutError, type PreparedStatement } from "oracle-nosqldb";
+import { Consistency, ErrorCode, NoSQLError, NoSQLTimeoutError, type PreparedStatement } from "oracle-nosqldb";
 import { describe, expect, it, vi } from "vitest";
 import { NOSQL_TIMEOUT_MS } from "./nosql-config";
 import { NoSqlMemoRepository, type NoSqlClientPort } from "./nosql-memo-repository";
@@ -93,6 +93,17 @@ describe("NoSqlMemoRepository", () => {
       expect(await repository.findById(ID)).toEqual({
         ok: true,
         value: { memo: MEMO, version: VERSION },
+      });
+    });
+
+    it("findById は ABSOLUTE で読む(EVENTUAL で読んだバージョンが照合に通らないことがあった。SPEC 13 章の 17)", async () => {
+      const { client, repository } = fakeClient();
+
+      await repository.findById(ID);
+
+      expect(client.get).toHaveBeenCalledWith(TABLE, { id: ID }, {
+        timeout: NOSQL_TIMEOUT_MS,
+        consistency: Consistency.ABSOLUTE,
       });
     });
 
@@ -253,7 +264,7 @@ describe("NoSqlMemoRepository", () => {
       const timeout = { timeout: NOSQL_TIMEOUT_MS };
       expect(NOSQL_TIMEOUT_MS).toBe(5000);
       expect(client.putIfAbsent).toHaveBeenCalledWith(TABLE, ROW, timeout);
-      expect(client.get).toHaveBeenCalledWith(TABLE, { id: ID }, timeout);
+      expect(client.get).toHaveBeenCalledWith(TABLE, { id: ID }, { ...timeout, consistency: Consistency.ABSOLUTE });
       expect(client.prepare).toHaveBeenCalledWith(expect.any(String), timeout);
       expect(client.queryIterable).toHaveBeenCalledWith(expect.anything(), timeout);
       expect(client.putIfVersion).toHaveBeenCalledWith(TABLE, ROW, VERSION_BYTES, timeout);
