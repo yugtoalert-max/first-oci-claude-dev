@@ -359,6 +359,7 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - `requestURL` が `/` で始まらない(スキームとホスト付き)ときは、パスとクエリ文字列だけにする。OCI の API Gateway でどちらの形で届くかは未確認([13 章](#13-未確定事項要検証) の 6)
   - メソッド・URL・呼び出し ID のどれかがない(HTTP Gateway 経由でない)呼び出しは、例外を投げる(FDK が 502 を返す)
   - レスポンスは `ctx.httpGateway.statusCode` と `setResponseHeader` で返す。`Content-Type` は FDK の応答の Content-Type になる
+  - ボディは FDK の `rawResult` で包んで返す。FDK(`@fnproject/fdk` 0.0.108 の `fn-fdk.js` の `sendResult`)は、ハンドラーが文字列を返し、応答の Content-Type が `application/json` か `+json` を含むと、その文字列をもう一度 `JSON.stringify` してから書き出す。そのまま返すと、ボディが JSON の文字列リテラル(`"{\"id\":...}"`)になり、`204` にも `""` の 2 バイトが付く。`rawResult` の結果は `writeResult` でそのまま書き出される
   - FDK は応答に必ず `Content-Type` を付ける(指定しなければ `application/json`)。このため `204` にも `Content-Type: application/json` が付く。API Gateway を通したときにどうなるかは未確認([13 章](#13-未確定事項要検証) の 7)
 - 本番用の IdGenerator と Clock **(仮置き)**
   - IdGenerator は `apps/api/memo-api/src/ulid-generator.ts` の `MonotonicUlidGenerator`(乱数は `crypto.randomBytes`)。core には置かない(サーバーだけが使うため)
