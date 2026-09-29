@@ -4,6 +4,7 @@ import { createHandler } from "../handler";
 import { NOW } from "../test-support";
 import {
   createFdkHandler,
+  describeRequestHeaders,
   type FdkContext,
   type FdkHttpGateway,
   toHttpRequest,
@@ -240,5 +241,62 @@ describe("createFdkHandler", () => {
 
     expect(ctx.httpGateway.statusCode).toBe(404);
     expect(JSON.parse(writtenBody(result))).toMatchObject({ status: 404, code: "NOT_FOUND" });
+  });
+});
+
+// 一時的な診断(SPEC 13 章の 16)。原因がわかったら外す
+describe("describeRequestHeaders", () => {
+  const ctx = fakeContext({
+    callID: "call-7",
+    headers: {
+      Authorization: ["Bearer secret-token"],
+      "Content-Type": ["application/json"],
+      "If-Match": ['"v1"'],
+    },
+    invocationHeaders: {
+      "Content-Type": ["application/octet-stream"],
+      "Fn-Call-Id": ["call-7"],
+      "Fn-Http-H-Authorization": ["Bearer secret-token"],
+    },
+  });
+
+  it("両方のヘッダーの名前と、Content-Type・If-Match の値を出す", () => {
+    expect(describeRequestHeaders(ctx)).toEqual({
+      diagnostic: "request-headers",
+      requestId: "call-7",
+      invocation: {
+        names: ["Content-Type", "Fn-Call-Id", "Fn-Http-H-Authorization"],
+        contentType: ["application/octet-stream"],
+        ifMatch: null,
+      },
+      gateway: {
+        names: ["Authorization", "Content-Type", "If-Match"],
+        contentType: ["application/json"],
+        ifMatch: ['"v1"'],
+      },
+    });
+  });
+
+  it("Authorization などの値は出さない", () => {
+    expect(JSON.stringify(describeRequestHeaders(ctx))).not.toContain("secret-token");
+  });
+});
+
+describe("createFdkHandler の診断ログ", () => {
+  it("診断ログの出力先を渡すと、呼び出しごとに 1 行の JSON を出す", async () => {
+    const lines: string[] = [];
+    const handle = createHandler({
+      repository: new InMemoryMemoRepository(),
+      clock: new ManualClock(NOW),
+      idGenerator: new SequentialIdGenerator(),
+      log: () => {},
+      timer: () => 0,
+    });
+    const fdkHandler = createFdkHandler(handle, { logDiagnostic: (line) => lines.push(line) });
+
+    await fdkHandler("", fakeContext({ callID: "call-9" }));
+
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "")).toMatchObject({ diagnostic: "request-headers", requestId: "call-9" });
   });
 });
