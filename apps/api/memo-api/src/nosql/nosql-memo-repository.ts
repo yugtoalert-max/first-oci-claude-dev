@@ -13,6 +13,7 @@ import {
   type VersionedMemo,
 } from "@memo/core";
 import {
+  Consistency,
   ErrorCode,
   type NoSQLClient,
   NoSQLError,
@@ -138,8 +139,11 @@ export class NoSqlMemoRepository implements MemoRepository {
 
   async findById(id: MemoId): Promise<Result<VersionedMemo | null, RepositoryError>> {
     return this.run(async () => {
+      // ABSOLUTE で読む。EVENTUAL で読んだバージョンが putIfVersion / deleteIfVersion の照合に
+      // 通らないことが stg であった(SPEC 13 章の 17)。読み取りユニットは EVENTUAL の 2 倍かかる
       const result = await this.client.get<MemoRow>(this.tableName, { id }, {
         timeout: NOSQL_TIMEOUT_MS,
+        consistency: Consistency.ABSOLUTE,
       });
       if (result.row === null) return null;
       return { memo: toMemo(result.row), version: requireVersion(result.version) };
