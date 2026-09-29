@@ -14,6 +14,13 @@ declare module "@fnproject/fdk" {
     readonly httpGateway: HTTPGatewayContext;
   };
 
+  /** FDK が writeResult でそのまま書き出す結果(fn-fdk.js の RawResult) */
+  export type RawResult = {
+    writeResult(ctx: unknown, resp: { write(chunk: string): boolean }): void;
+  };
+
+  export function rawResult(res: string): RawResult;
+
   export function handle(
     fn: (input: string, ctx: Context) => unknown,
     options: { inputMode: "string" },

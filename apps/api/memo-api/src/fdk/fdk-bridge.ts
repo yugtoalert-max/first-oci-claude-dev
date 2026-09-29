@@ -2,6 +2,7 @@
 // FDK は API Gateway のリクエストを Fn-Http-Method / Fn-Http-Request-Url / Fn-Http-H-* のヘッダーで受け取り、
 // httpGateway から読めるようにしている。ただし Content-Type などは Fn-Http-H- が付かず、
 // 呼び出しそのもののヘッダー(ctx.headers)として届く。レスポンスのステータスとヘッダーは httpGateway に設定する
+import { type RawResult, rawResult } from "@fnproject/fdk";
 import type { createHandler } from "../handler";
 import type { HttpRequest, HttpResponse } from "../http";
 
@@ -71,10 +72,14 @@ export function writeHttpResponse(response: HttpResponse, gateway: FdkHttpGatewa
   return response.body;
 }
 
-/** fdk.handle に渡す関数を作る。入力は文字列で受け取る(inputMode: "string") */
-export function createFdkHandler(handle: Handler): (body: string, ctx: FdkContext) => Promise<string> {
+/**
+ * fdk.handle に渡す関数を作る。入力は文字列で受け取る(inputMode: "string")。
+ * ボディは rawResult で返す。文字列のまま返すと、FDK は応答の Content-Type が JSON のとき
+ * もう一度 JSON.stringify してから書き出すため(ボディが JSON の文字列リテラルになる)
+ */
+export function createFdkHandler(handle: Handler): (body: string, ctx: FdkContext) => Promise<RawResult> {
   return async (body, ctx) => {
     const response = await handle(toHttpRequest(body, ctx));
-    return writeHttpResponse(response, ctx.httpGateway);
+    return rawResult(writeHttpResponse(response, ctx.httpGateway));
   };
 }
