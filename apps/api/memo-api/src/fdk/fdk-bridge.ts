@@ -1,7 +1,6 @@
 // FDK(@fnproject/fdk)の HTTP Gateway 経由の呼び出しと、アダプター層(createHandler)をつなぐ。
 // FDK は API Gateway のリクエストを Fn-Http-Method / Fn-Http-Request-Url / Fn-Http-H-* のヘッダーで受け取り、
-// httpGateway から読めるようにしている。ただし Content-Type などは Fn-Http-H- が付かず、
-// 呼び出しそのもののヘッダー(ctx.headers)として届く。レスポンスのステータスとヘッダーは httpGateway に設定する
+// httpGateway から読めるようにしている。レスポンスのステータスとヘッダーは httpGateway に設定する
 import { type RawResult, rawResult } from "@fnproject/fdk";
 import type { createHandler } from "../handler";
 import type { HttpRequest, HttpResponse } from "../http";
@@ -39,13 +38,13 @@ function pathAndQuery(url: string): string {
 }
 
 /**
- * 呼び出しそのもののヘッダー(Fn- で始まるものを除く)と httpGateway.headers を合わせる。
- * 同じ名前が両方にあれば httpGateway 側を使う(API Gateway が受け取ったヘッダーそのもののため)。
- * FDK が両方の名前を先頭大文字の形にそろえるので、名前はそのまま比べる
+ * httpGateway.headers の値から、まったく同じ値の重複を除く(順番は最初に出た順)。
+ * stg では、クライアントが 1 つだけ送った Content-Type が同じ値 2 つになって届いた(SPEC 13 章の 16)。
+ * 値の違う複数行はそのまま渡し、アダプター層で判定する。
+ * 呼び出しそのもののヘッダー(ctx.headers)は API Gateway が Function を呼ぶときのものなので使わない
  */
-function mergeHeaders(ctx: FdkContext): Record<string, string[]> {
-  const invocation = Object.entries(ctx.headers).filter(([key]) => !key.startsWith("Fn-"));
-  return { ...Object.fromEntries(invocation), ...ctx.httpGateway.headers };
+function gatewayHeaders(gateway: FdkHttpGateway): Record<string, string[]> {
+  return Object.fromEntries(Object.entries(gateway.headers).map(([key, values]) => [key, [...new Set(values)]]));
 }
 
 /**
@@ -58,7 +57,7 @@ export function toHttpRequest(body: string, ctx: FdkContext): HttpRequest {
     requestId: required(ctx.callID, "call ID"),
     method: required(gateway.method, "method"),
     url: pathAndQuery(required(gateway.requestURL, "request URL")),
-    headers: mergeHeaders(ctx),
+    headers: gatewayHeaders(gateway),
     body,
   };
 }
