@@ -13,3 +13,4 @@ note 連載のサンプルリポジトリ。読者が追える小さな変更単
 - コミットメッセージは Conventional Commits(`feat:` / `fix:` / `docs:` / `chore:` など)
 - PR 本文は `.github/pull_request_template.md` の「何を変えたか / なぜ変えたか / どう確認したか」の形式で書く(`gh pr create --body` ではテンプレートが自動適用されないため)
 - 作業完了の報告には、実行したコマンドとその結果を証拠として付ける
+- hook(`.claude/hooks/`)に止められたら、書き方を変えて回避しない。止められた理由を伝え、必要なら人に実行を頼む
