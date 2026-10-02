@@ -5,10 +5,53 @@
       "Bash(terraform destroy *)",
       "Bash(terraform -chdir=* apply *)",
       "Bash(terraform -chdir=* destroy *)",
+      "Bash(docker push *)",
+      "Bash(npm run deploy:web *)",
+      "Bash(npm run clean:web *)",
       "Read(**/*.tfvars)",
       "Read(**/*.tfstate)",
       "Read(**/*.tfstate.*)",
+      "Read(**/*.tfplan)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(!.env.example)",
+      "Read(**/*.pem)",
       "Read(~/.oci/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.ts\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-paths.ts\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/verify-on-stop.ts\"",
+            "timeout": 300
+          }
+        ]
+      }
     ]
   }
 }

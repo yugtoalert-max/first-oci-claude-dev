@@ -13,7 +13,7 @@
     "test:contract": "vitest run --config vitest.contract.config.ts",
     "kvlite:up": "docker run -d --name memo-kvlite --hostname kvlite --env KV_PROXY_PORT=8080 -p 8080:8080 ghcr.io/oracle/nosql:latest-ce",
     "kvlite:down": "docker rm -f memo-kvlite",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "tsc -p .claude/hooks && npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "build:functions": "npm run build:function --workspaces --if-present",
     "deploy:web": "npm run build -w @memo/web && node apps/web/scripts/deploy-web.ts",

@@ -9,6 +9,7 @@ export default defineConfig({
       "apps/api/*/src/**/*.test.ts",
       "apps/web/src/**/*.test.ts",
       "apps/web/scripts/**/*.test.ts",
+      ".claude/hooks/**/*.test.ts",
     ],
     exclude: [...configDefaults.exclude, "**/*.contract.test.ts"],
   },
