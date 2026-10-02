@@ -96,6 +96,13 @@ describe("NoSqlMemoRepository", () => {
       });
     });
 
+    it("SDK が Buffer でないバージョンを返したら例外にする(アダプター層で 500 になる)", async () => {
+      const { client, repository } = fakeClient();
+      client.putIfAbsent.mockResolvedValueOnce({ success: true, version: "not-a-buffer" } as never);
+
+      await expect(repository.insert(MEMO)).rejects.toThrow("row version is not a Buffer");
+    });
+
     it("findById は ABSOLUTE で読む(EVENTUAL で読んだバージョンが照合に通らないことがあった。SPEC 13 章の 17)", async () => {
       const { client, repository } = fakeClient();
 
