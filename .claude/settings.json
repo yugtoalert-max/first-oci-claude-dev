@@ -13,8 +13,10 @@
       "Read(**/*.tfstate.*)",
       "Read(**/*.tfplan)",
       "Read(**/.env)",
-      "Read(**/.env.*)",
-      "Read(!.env.example)",
+      "Read(**/.env.local)",
+      "Read(**/.env.*.local)",
+      "Read(**/.env.stg)",
+      "Read(**/.env.prod)",
       "Read(**/*.pem)",
       "Read(~/.oci/**)"
     ],
