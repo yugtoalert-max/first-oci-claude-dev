@@ -2,8 +2,8 @@
 // 失敗したら exit 2 で止め、出力の末尾を Claude Code に返して直させる。
 //
 // - main から変更がないときは何もしない(質問に答えただけのときに毎回走らせない)
-// - Terraform の検証は infra/ に変更があるときだけ実行する。terraform fmt は -diff を付けない
-//   (-diff は *.tfvars の中身も表示する)
+// - Terraform の検証は infra/ に変更があるときだけ実行する。terraform fmt は -diff を付けず、
+//   対象を *.tf に絞る(*.tfvars は人のファイルで、-diff はその中身も表示する)
 // - 1回止めて直させた後(stop_hook_active が true)は、もう止めない。直せないまま
 //   止め続けるのを避けるため。その場合も結果は表示する
 import { spawnSync } from "node:child_process";
@@ -33,7 +33,11 @@ export function stepsFor(files: string[]): Step[] {
     { name: "test", cmd: "npm", args: ["test", "--silent"] },
   ];
   if (files.some((f) => f.startsWith("infra/"))) {
-    steps.push({ name: "terraform fmt", cmd: "terraform", args: ["fmt", "-check", "-recursive", "infra"] });
+    // 対象は Git 管理下と新規の *.tf だけ。-recursive にすると Git 管理外の *.tfvars(人のファイル)まで調べる
+    const tf = git("ls-files", "--cached", "--others", "--exclude-standard", "infra/*.tf", "infra/**/*.tf")
+      .split("\n")
+      .filter((f) => f !== "");
+    if (tf.length > 0) steps.push({ name: "terraform fmt", cmd: "terraform", args: ["fmt", "-check", ...tf] });
     for (const env of ["stg"]) {
       const dir = join("infra", "envs", env);
       if (existsSync(join(project, dir, ".terraform"))) {
