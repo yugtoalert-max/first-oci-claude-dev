@@ -1,6 +1,8 @@
 # issue や PR のコメントで @claude と書くと、Claude Code が応答する。
 # /install-github-app が作ったものを、このリポジトリに合わせて調整している。
-# 書き込み権限のある人のコメントにだけ応答する(アクションが確かめる)
+# 書き込み権限のある人のコメントにだけ応答する(アクションが確かめる)。
+# PR の自動レビュー(claude-code-review.yml)は置いていない。認証が Pro の OAuth トークンなので、
+# 実行のたびに Pro の利用枠を使う。レビューは必要なときに @claude で頼む
 name: Claude Code
 
 on:
