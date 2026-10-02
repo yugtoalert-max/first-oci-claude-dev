@@ -8,7 +8,7 @@ hooks は Claude Code が毎回実行するので、守らせたいルールを�
 |---|---|---|
 | `guard-bash.ts` | Bash を実行する前(PreToolUse) | 人が実行すると決めた操作と、秘密情報のファイルに触れるコマンドを止める |
 | `guard-paths.ts` | Edit / Write / NotebookEdit の前(PreToolUse) | リポジトリの外のファイルの書き換えを止める |
-| `verify-on-stop.ts` | 応答を終える前(Stop) | 型チェック・テスト(`infra/` に変更があれば `terraform fmt -check` と `validate`)を実行し、失敗したら1回だけ差し戻す |
+| `verify-on-stop.ts` | 応答を終える前(Stop) | 型チェック・lint・テスト(`infra/` に変更があれば `terraform fmt -check` と `validate`)を実行し、失敗したら1回だけ差し戻す |
 
 ## guard-bash が止めるもの
 

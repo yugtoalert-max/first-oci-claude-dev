@@ -1,4 +1,4 @@
-// Stop hook: Claude Code が応答を終える前に、型チェック・テスト・Terraform の検証を実行する。
+// Stop hook: Claude Code が応答を終える前に、型チェック・lint・テスト・Terraform の検証を実行する。
 // 失敗したら exit 2 で止め、出力の末尾を Claude Code に返して直させる。
 //
 // - main から変更がないときは何もしない(質問に答えただけのときに毎回走らせない)
@@ -30,6 +30,7 @@ export function changedFiles(): string[] {
 export function stepsFor(files: string[]): Step[] {
   const steps: Step[] = [
     { name: "typecheck", cmd: "npm", args: ["run", "typecheck", "--silent"] },
+    { name: "lint", cmd: "npm", args: ["run", "lint", "--silent"] },
     { name: "test", cmd: "npm", args: ["test", "--silent"] },
   ];
   if (files.some((f) => f.startsWith("infra/"))) {
@@ -49,7 +50,7 @@ export function stepsFor(files: string[]): Step[] {
 }
 
 if (import.meta.main) {
-  const input = JSON.parse(readFileSync(0, "utf8"));
+  const input = JSON.parse(readFileSync(0, "utf8")) as { stop_hook_active?: boolean };
   const files = changedFiles();
   if (files.length === 0) process.exit(0);
 

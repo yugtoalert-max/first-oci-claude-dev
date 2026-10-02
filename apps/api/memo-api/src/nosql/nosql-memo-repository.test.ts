@@ -96,6 +96,13 @@ describe("NoSqlMemoRepository", () => {
       });
     });
 
+    it("SDK が Buffer でないバージョンを返したら例外にする(アダプター層で 500 になる)", async () => {
+      const { client, repository } = fakeClient();
+      client.putIfAbsent.mockResolvedValueOnce({ success: true, version: "not-a-buffer" } as never);
+
+      await expect(repository.insert(MEMO)).rejects.toThrow("row version is not a Buffer");
+    });
+
     it("findById は ABSOLUTE で読む(EVENTUAL で読んだバージョンが照合に通らないことがあった。SPEC 13 章の 17)", async () => {
       const { client, repository } = fakeClient();
 
@@ -183,7 +190,7 @@ describe("NoSqlMemoRepository", () => {
 
     it("deleteIfVersion が失敗して既存の行が返らなければ not_found", async () => {
       const { client, repository } = fakeClient();
-      client.deleteIfVersion.mockResolvedValueOnce({ success: false } as never);
+      client.deleteIfVersion.mockResolvedValueOnce({ success: false });
 
       expect(await repository.delete(ID, VERSION)).toEqual({
         ok: true,
@@ -291,6 +298,8 @@ describe("NoSqlMemoRepository", () => {
 
     function failWith(client: Client, method: keyof Client, error: Error): void {
       if (method === "queryIterable") {
+        // 最初の next() で失敗する async iterable を作る。yield しないのは意図どおり
+        // eslint-disable-next-line require-yield
         client.queryIterable.mockImplementationOnce(async function* () {
           throw error;
         });

@@ -66,6 +66,8 @@ const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 /** 行バージョン(Buffer)を opaque な文字列にする(SPEC 3.4) */
 function encodeVersion(version: RowVersion): Version {
+  // SDK の型(OpaqueType)は Buffer でない場合も含む。実際に返るのは Buffer
+  if (!Buffer.isBuffer(version)) throw new Error("row version is not a Buffer");
   return version.toString("base64url");
 }
 
