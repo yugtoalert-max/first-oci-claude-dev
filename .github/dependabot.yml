@@ -1,0 +1,49 @@
+# 依存関係の更新。週に1回(月曜の朝)、種類ごとにまとめて PR を作る。
+# 公開直後の版は避ける(cooldown)。乗っ取られたパッケージの版が公開されても、数日で取り下げられることが多いため
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    cooldown:
+      default-days: 7
+    groups:
+      # minor と patch は1つの PR にまとめる。major は1つずつ(変更点を確かめるため)
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  # プロバイダの版は envs/stg で固定している(モジュールは最低版だけ)
+  - package-ecosystem: terraform
+    directories: [/infra/envs/stg]
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: chore
+      include: scope
