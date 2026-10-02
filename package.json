@@ -17,12 +17,18 @@
     "build": "npm run build --workspaces --if-present",
     "build:functions": "npm run build:function --workspaces --if-present",
     "deploy:web": "npm run build -w @memo/web && node apps/web/scripts/deploy-web.ts",
-    "clean:web": "node apps/web/scripts/clean-web.ts"
+    "clean:web": "node apps/web/scripts/clean-web.ts",
+    "lint": "eslint ."
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.3",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "esbuild": "^0.28.2",
-    "typescript": "^7.0.2",
+    "eslint": "^10.11.0",
+    "globals": "^17.13.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-eslint": "^8.71.0",
     "vitest": "^5.0.2"
   }
 }

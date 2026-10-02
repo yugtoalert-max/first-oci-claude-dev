@@ -13,8 +13,11 @@ Claude Code に書かせ、Git で履歴とレビューを残し、Terraform で
 ```sh
 npm install
 npm test            # Docker 不要のテスト
-npm run typecheck   # 型検査
+npm run typecheck   # 型検査(TypeScript 7)
+npm run lint        # ESLint(typescript-eslint)
 ```
+
+typescript-eslint は TypeScript 7 の API にまだ対応していないので、`typescript` には TypeScript 6 の互換パッケージ(`@typescript/typescript6`)を入れ、`tsc` は `@typescript/native`(TypeScript 7)を使います([TypeScript 7.0 の発表](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/))。
 
 NoSQL リポジトリの契約テストは、ローカルの Docker で動かす Oracle NoSQL Database CE(KVLite)に対して実行します。
 
