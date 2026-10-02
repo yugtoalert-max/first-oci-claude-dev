@@ -560,8 +560,8 @@ function currentBranch(cwd: string): string | undefined {
 
 if (import.meta.main) {
   try {
-    const input = JSON.parse(readFileSync(0, "utf8"));
-    const command: string = input.tool_input?.command ?? "";
+    const input = JSON.parse(readFileSync(0, "utf8")) as { tool_input?: { command?: string }; cwd?: string };
+    const command = input.tool_input?.command ?? "";
     const verdict = check(command, { currentBranch: currentBranch(input.cwd ?? process.cwd()) });
     if (!verdict.allowed) {
       process.stdout.write(

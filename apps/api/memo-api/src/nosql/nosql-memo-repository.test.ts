@@ -183,7 +183,7 @@ describe("NoSqlMemoRepository", () => {
 
     it("deleteIfVersion が失敗して既存の行が返らなければ not_found", async () => {
       const { client, repository } = fakeClient();
-      client.deleteIfVersion.mockResolvedValueOnce({ success: false } as never);
+      client.deleteIfVersion.mockResolvedValueOnce({ success: false });
 
       expect(await repository.delete(ID, VERSION)).toEqual({
         ok: true,
@@ -291,6 +291,8 @@ describe("NoSqlMemoRepository", () => {
 
     function failWith(client: Client, method: keyof Client, error: Error): void {
       if (method === "queryIterable") {
+        // 最初の next() で失敗する async iterable を作る。yield しないのは意図どおり
+        // eslint-disable-next-line require-yield
         client.queryIterable.mockImplementationOnce(async function* () {
           throw error;
         });

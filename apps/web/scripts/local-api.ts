@@ -56,7 +56,15 @@ function send(response: ServerResponse, status: number, headers: Record<string, 
   response.writeHead(status, headers).end(body);
 }
 
-const server = createServer(async (request, response) => {
+// ハンドラーが例外を投げても、未処理の Promise にせず 500 を返す
+const server = createServer((request, response) => {
+  serve(request, response).catch((error: unknown) => {
+    console.error(error);
+    if (!response.headersSent) send(response, 500, { "Content-Type": "text/plain" }, "Internal Server Error");
+  });
+});
+
+async function serve(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(request.url ?? "/", "http://localhost");
 
   if (url.pathname === "/__local/throttle" && request.method === "POST") {
@@ -84,7 +92,7 @@ const server = createServer(async (request, response) => {
     body: await readBody(request),
   });
   send(response, result.status, result.headers, result.body);
-});
+}
 
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`local API: http://127.0.0.1:${PORT}/api (token: ${TOKEN})`);

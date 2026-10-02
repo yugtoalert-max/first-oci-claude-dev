@@ -53,8 +53,12 @@ export function checkPath(filePath: string, cwd: string, roots: Roots): Verdict 
 
 if (import.meta.main) {
   try {
-    const input = JSON.parse(readFileSync(0, "utf8"));
-    const filePath: string | undefined = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
+    const input = JSON.parse(readFileSync(0, "utf8")) as {
+      tool_input?: { file_path?: string; notebook_path?: string };
+      cwd?: string;
+      scratchpad_dir?: string;
+    };
+    const filePath = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
     if (filePath !== undefined) {
       const verdict = checkPath(filePath, input.cwd ?? process.cwd(), {
         project: process.env.CLAUDE_PROJECT_DIR ?? process.cwd(),
