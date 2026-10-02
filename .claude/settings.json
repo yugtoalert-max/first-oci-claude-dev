@@ -17,7 +17,31 @@
       "Read(!.env.example)",
       "Read(**/*.pem)",
       "Read(~/.oci/**)"
+    ],
+    "ask": [
+      "Edit(/.claude/**)"
     ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "excludedCommands": [
+      "terraform -chdir=infra/envs/* plan *",
+      "terraform -chdir=infra/envs/* init *",
+      "terraform fmt *",
+      "gh pr *"
+    ],
+    "network": {
+      "allowedDomains": [
+        "github.com",
+        "api.github.com",
+        "registry.npmjs.org",
+        "registry.terraform.io",
+        "releases.hashicorp.com"
+      ],
+      "allowUnixSockets": [
+        "~/.colima/default/docker.sock"
+      ]
+    }
   },
   "hooks": {
     "PreToolUse": [
