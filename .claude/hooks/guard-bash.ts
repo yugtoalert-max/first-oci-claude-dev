@@ -442,7 +442,8 @@ export function isSecretPath(word: string): boolean {
     /\.tfplan$/.test(name) ||
     /^\.env(\..+)?$/.test(name) ||
     /\.pem$/.test(name) ||
-    /(^|\/)\.oci(\/|$)/.test(w) ||
+    // docker run -v ~/.oci:/x や --mount src=~/.oci,dst=/x の書き方も含める
+    /(^|[/:=])\.oci([/:,]|$)/.test(w) ||
     /^~\/\.oci/.test(w)
   );
 }

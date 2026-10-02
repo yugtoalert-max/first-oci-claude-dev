@@ -80,6 +80,7 @@ describe("止めるコマンド", () => {
     "ls ~/.oci",
     "python3 -c 'print(1)' < infra/envs/stg/terraform.tfvars",
     "echo x > .env.local",
+    "docker run --rm -v $HOME/.oci:/root/.oci alpine ls /root/.oci",
     // 解析できないものは止める
     "echo 'unterminated",
   ])("%s", (command) => {
@@ -155,6 +156,8 @@ describe("isSecretPath", () => {
     ["key.pem", true],
     ["~/.oci/config", true],
     ["/Users/me/.oci", true],
+    ["$HOME/.oci:/root/.oci", true],
+    ["src=/Users/me/.oci,dst=/x", true],
     ["terraform.tfvars.example", false],
     [".env.example", false],
     ["main.tf", false],
