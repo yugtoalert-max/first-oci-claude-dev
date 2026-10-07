@@ -37,38 +37,87 @@ Object Storage(画面用のバケット)… service user のグループに、�
 
 ドメインは Default を使います。ドメインの URL(`https://idcs-<...>.identity.oraclecloud.com`)はコンソールの「アイデンティティ」→「ドメイン」→ Default の「ドメイン URL」で確かめます。
 
+1.1〜1.3 はどれも、公式文書の REST API(SCIM)の本文を `oci raw-request` でそのまま送ります。`oci raw-request` は手元の OCI CLI の API キーで要求に署名します(テナンシの管理者で実行する)。JSON のファイルは Git 管理外の場所に作ります。
+
+`oci identity-domains user create --from-json` は使いません。2026-10-07 に試したところ、`serviceUser` を入れる拡張の部分(`urnietfparamsscimschemasoracleidcsextensionuserUser`)が送る本文から黙って落ち、普通のユーザーとして扱われて `400`(`name` が必須、続けてプライマリメールが必須)になりました(`--debug` で送った本文を見て確認。SPEC 13.1)。
+
 ### 1.1 service user とグループ
 
-1. Default ドメインに **service user**(`serviceUser = true`。パスワードやコンソールへのサインインを持たないユーザー)を作る。コンソールで service user を作れるかは公式文書で確かめられなかったので、CLI で作る(公式の手順は REST API の `POST /admin/v1/Users`。CLI の `--from-json` のキーは `oci identity-domains user create --generate-full-command-json-input` で確かめた)
+1. Default ドメインに **service user**(`serviceUser = true`。パスワードやコンソールへのサインインを持たないユーザー。名前やメールは要らない)を作る
 
-   `service-user.json`(Git 管理外の場所に作る):
+   `service-user.json`:
 
    ```json
    {
      "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
-     "userName": "<project>-stg-deploy-web",
-     "urnietfparamsscimschemasoracleidcsextensionuserUser": { "serviceUser": true }
+     "urn:ietf:params:scim:schemas:oracle:idcs:extension:user:User": { "serviceUser": true },
+     "userName": "<project>-stg-deploy-web"
    }
    ```
 
    ```sh
-   oci identity-domains user create --endpoint <ドメインの URL> --from-json file://service-user.json
+   oci raw-request --http-method POST \
+     --target-uri <ドメインの URL>/admin/v1/Users \
+     --request-body file://service-user.json
    ```
 
-2. グループを作り(例: `<project>-stg-deploy-web`)、この service user だけを入れる(コンソールの Default ドメインの「グループ」から)
+   応答の `status` が `201 Created` で、`data` の `urn:ietf:params:scim:schemas:oracle:idcs:extension:user:User` の `serviceUser` が `true` なら成功です。
+
+2. グループを作り、この service user だけを入れる
+
+   `group.json`:
+
+   ```json
+   {
+     "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+     "displayName": "<project>-stg-deploy-web",
+     "members": [{ "type": "User", "value": "<service user の id>" }]
+   }
+   ```
+
+   ```sh
+   oci raw-request --http-method POST \
+     --target-uri <ドメインの URL>/admin/v1/Groups \
+     --request-body file://group.json
+   ```
+
+   作成の応答には `members` が入りません(空に見える)。入ったかは `GET <ドメインの URL>/admin/v1/Groups/<グループの id>?attributes=members` で確かめます。
+
 3. 次の 2 つを控える(コミットしない)
    - service user の **id**(SCIM の id。OCID ではない)… 1.3 の `impersonationServiceUsers` で使う
    - グループの **OCID** … 1.4 の tfvars で使う
 
 ### 1.2 トークン交換用の confidential app
 
-1. Default ドメインの「統合アプリケーション」で、confidential application を作る
-2. クライアントの構成で **client credentials** を許可する。**管理者ロール(app roles)は付けない**
-3. アプリを有効化し、client id と client secret を控える(client secret は GitHub の secret にだけ入れる)
+`app.json`:
+
+```json
+{
+  "schemas": ["urn:ietf:params:scim:schemas:oracle:idcs:App"],
+  "displayName": "<project>-stg-github-actions",
+  "basedOnTemplate": { "value": "CustomWebAppTemplateId" },
+  "isOAuthClient": true,
+  "clientType": "confidential",
+  "allowedGrants": ["client_credentials"],
+  "active": true
+}
+```
+
+**応答に client secret がそのまま入る**ので、端末に出さずに自分だけが読めるファイルに書きます。
+
+```sh
+umask 077
+oci raw-request --http-method POST \
+  --target-uri <ドメインの URL>/admin/v1/Apps \
+  --request-body file://app.json > app.out.json
+```
+
+- 応答の `data.name` が client id、`data.clientSecret` が client secret です。`active` が `true`、`allowedGrants` が `client_credentials` だけ、管理者ロール(`grantedAppRoles`)がないことを確かめます
+- client secret は 2.2 で GitHub の secret に入れたら、`app.out.json` を消します
 
 ### 1.3 Identity Propagation Trust
 
-`trust.json`(Git 管理外の場所に作る。値はプレースホルダを置き換える):
+`trust.json`(値はプレースホルダを置き換える):
 
 ```json
 {
@@ -91,12 +140,13 @@ Object Storage(画面用のバケット)… service user のグループに、�
 ```
 
 ```sh
-oci identity-domains identity-propagation-trust create \
-  --endpoint <ドメインの URL> \
-  --from-json file://trust.json
+oci raw-request --http-method POST \
+  --target-uri <ドメインの URL>/admin/v1/IdentityPropagationTrusts \
+  --request-body file://trust.json
 ```
 
 - `active` の既定は `false` です。`true` にしないと交換できません
+- rule が保存されたかは `GET <ドメインの URL>/admin/v1/IdentityPropagationTrusts/<trust の id>?attributes=impersonationServiceUsers` で確かめます
 - rule の `<OWNER-ID>` / `<REPO-ID>` は数字の ID です。このリポジトリは immutable な sub(`OWNER@OWNER-ID/REPO@REPO-ID`)の対象なので、名前だけの sub では一致しません。次で確かめます
 
   ```sh
@@ -123,6 +173,8 @@ terraform -chdir=infra/envs/stg apply
 ```
 
 足される文: `Allow group id <グループ> to manage objects in compartment id <stg コンパートメント> where target.bucket.name = '<画面用のバケット>'`
+
+- `apply` は確認(`yes`)を標準入力から読みます。Claude Code の `!` から実行すると標準入力がないので、`error asking for approval: EOF` で止まります(何も変わりません)。ターミナルで実行するか、plan を確かめたうえで `-auto-approve` を付けます
 
 ## 2. GitHub 側(人が行う)
 
