@@ -39,8 +39,23 @@ Object Storage(画面用のバケット)… service user のグループに、�
 
 ### 1.1 service user とグループ
 
-1. Default ドメインにユーザーを作り、**service user**(`serviceUser = true`。パスワードやコンソールへのサインインを持たないユーザー)にする。名前の例: `<project>-stg-deploy-web`
-2. グループを作り(例: `<project>-stg-deploy-web`)、この service user だけを入れる
+1. Default ドメインに **service user**(`serviceUser = true`。パスワードやコンソールへのサインインを持たないユーザー)を作る。コンソールで service user を作れるかは公式文書で確かめられなかったので、CLI で作る(公式の手順は REST API の `POST /admin/v1/Users`。CLI の `--from-json` のキーは `oci identity-domains user create --generate-full-command-json-input` で確かめた)
+
+   `service-user.json`(Git 管理外の場所に作る):
+
+   ```json
+   {
+     "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+     "userName": "<project>-stg-deploy-web",
+     "urnietfparamsscimschemasoracleidcsextensionuserUser": { "serviceUser": true }
+   }
+   ```
+
+   ```sh
+   oci identity-domains user create --endpoint <ドメインの URL> --from-json file://service-user.json
+   ```
+
+2. グループを作り(例: `<project>-stg-deploy-web`)、この service user だけを入れる(コンソールの Default ドメインの「グループ」から)
 3. 次の 2 つを控える(コミットしない)
    - service user の **id**(SCIM の id。OCID ではない)… 1.3 の `impersonationServiceUsers` で使う
    - グループの **OCID** … 1.4 の tfvars で使う
@@ -65,6 +80,7 @@ Object Storage(画面用のバケット)… service user のグループに、�
   "oauthClients": ["<トークン交換用アプリの client id>"],
   "active": true,
   "allowImpersonation": true,
+  "subjectType": "User",
   "impersonationServiceUsers": [
     {
       "rule": "sub eq repo:<OWNER>@<OWNER-ID>/<REPO>@<REPO-ID>:environment:stg",
@@ -90,6 +106,8 @@ oci identity-domains identity-propagation-trust create \
 
 - 実際に届いた sub と aud は、workflow のログの `GitHub OIDC token: sub=... aud=...` の行で確かめられます
 - rule に `*` も使えますが、使いません(どのリポジトリ・ブランチの JWT でも service user になれてしまうため)
+- `subjectType` は公式の例(なりすましあり)に合わせて `User` にしています
+- trust には `claimValidations`(`name` / `value` の組の一覧。CLI 3.92.1 の `--claim-validations`)もあります。`aud` などの claim を確かめるのに使えそうですが、意味と書き方は公式文書で確かめられていないので、使いません(SPEC 13 章)
 
 ### 1.4 ポリシー(Terraform。apply は人)
 
