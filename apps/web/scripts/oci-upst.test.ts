@@ -53,11 +53,11 @@ type Call = { url: string; init: RequestInit | undefined };
 
 function fakeFetch(status: number, body: string): { fetch: typeof fetch; calls: Call[] } {
   const calls: Call[] = [];
-  const fn = async (input: string | URL | Request, init?: RequestInit) => {
-    calls.push({ url: String(input), init });
+  const fn: typeof fetch = async (input, init) => {
+    calls.push({ url: input instanceof Request ? input.url : input.toString(), init });
     return new Response(body, { status });
   };
-  return { fetch: fn as typeof fetch, calls };
+  return { fetch: fn, calls };
 }
 
 describe("parseUpstEnv", () => {
