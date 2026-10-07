@@ -485,6 +485,7 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
     - `Allow dynamic-group id <DG> to manage nosql-rows in compartment id <C> where target.nosql-table.name = '<テーブル>'`(削除に `NOSQL_ROWS_DELETE` が要るので `manage`)
     - `Allow dynamic-group id <DG> to read secret-bundles in compartment id <C> where target.secret.id = '<シークレット>'`(2 回目の apply から)
     - `Allow any-user to use functions-family in compartment id <C> where ALL {request.principal.type = 'ApiGateway', request.resource.compartment.id = '<C>'}`
+    - `Allow group id <G> to manage objects in compartment id <C> where target.bucket.name = '<画面用のバケット>'`(`deploy_web_group_id` を入れたときだけ。GitHub Actions からの配置。[10.6](#106-配置作業))
   - OCIR からイメージを取得するためのポリシーは作らない。Functions のポリシーのドキュメントに、同じテナンシのリポジトリから取得するための `service faas` の文がないため(署名の検証を使うときの鍵の読み取りだけ)
   - API Gateway のモジュールは IAM のモジュールに `depends_on` し、呼び出しの権限ができてからデプロイメントを作る
 - ログ: ロググループ `<project>-<env>-logs` に、Function の呼び出しログ(`functions` / `invoke`、アプリケーション単位)と、API Gateway のアクセスログ・実行ログ(`apigateway` / `access`・`execution`、デプロイメント単位)を置く。保持期間は `log_retention_days`
@@ -633,6 +634,29 @@ RFC 9457(`application/problem+json`)に `code` を追加した形。クライア
   - `--dry-run`: 実行されるはずの oci コマンドを、シェルに貼れる形で表示するだけ。OCI に接続しないので、バケットの一覧を取らず、削除の対象は表示しない(削除のコマンドの形だけを出す)
   - スクリプトは TypeScript のまま `node` で直接実行する(型を取り除く機能を使う。Node.js 22.18 以降)。このため import に `.ts` を付け、型を消すだけで動く書き方に限る。型検査は `apps/web/tsconfig.node.json`(`@types/node` を使う)で行う。`apps/web/src` の tsconfig は変えない(DOM の型だけ)
 
+#### GitHub Actions からの配置
+
+`npm run deploy:web` を GitHub Actions(`.github/workflows/deploy-web.yml`)から実行できるようにした。対象は画面の配置だけで、Functions のイメージと `terraform apply` は引き続き人が手元で行う。人の作業手順は `docs/deploy-web-wif.md`。
+
+- 認証は OCI の Workload Identity Federation。GitHub Actions の OIDC トークン(JWT)を、アイデンティティドメインの Identity Propagation Trust で UPST に交換し、OCI CLI を `--auth security_token`(環境変数 `OCI_CLI_AUTH=security_token`)で使う。**OCI の API キーは置かない**
+  - 交換: `POST <ドメインの URL>/oauth2/v1/token`。Basic 認証(トークン交換用の confidential app の client id / secret。admin ロールなし)、本文は `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`・`requested_token_type=urn:oci:token-type:oci-upst`・`subject_token=<JWT>`・`subject_token_type=jwt`・`public_key=<公開鍵>`。応答は `{"token": "<UPST>"}`(https://docs.oracle.com/en-us/iaas/Content/Identity/api-getstarted/json_web_token_exchange.htm)
+  - `public_key` は、SPKI の PEM から `-----BEGIN PUBLIC KEY-----` / `-----END PUBLIC KEY-----` と改行を除いた本体。エンドポイントはドメインの URL の末尾の `/` を除いて `/oauth2/v1/token` を付ける。応答に `token` がなければエラー。いずれも OCI Python SDK の `TokenExchangeSigner`(`oci/auth/signers/token_exchange_signer.py`。OCI CLI 3.92.1 に同梱の SDK で確認)に合わせた
+  - GitHub の OIDC トークンは `GET $ACTIONS_ID_TOKEN_REQUEST_URL` に `Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN` で取る(応答 `{"value": "<JWT>"}`)。workflow に `permissions: id-token: write` が要る(https://docs.github.com/en/actions/reference/security/oidc)
+  - このリポジトリは immutable な sub の対象なので、sub は `repo:<OWNER>@<OWNER-ID>/<REPO>@<REPO-ID>:environment:stg`。trust の rule は `sub eq <この値>` にし、`*` は使わない
+  - GitHub に置くのは、トークン交換用アプリの client secret だけ。これだけでは何もできない(GitHub が署名した JWT で、rule に合う sub が要る)
+- 権限: Default ドメインの service user をグループに入れ、`Allow group id <グループ> to manage objects in compartment id <stg コンパートメント> where target.bucket.name = '<画面用のバケット>'` を付ける。グループの OCID は `terraform.tfvars` の `deploy_web_group_id`(既定 `null`。人が作るまでは文を作らない。`auth_token_secret_id` と同じ流儀)。`manage objects` で一覧・アップロード・削除が足りるかは未確定([13 章](#13-未確定事項要検証) の 23)
+- ログ: public リポジトリの Actions のログは誰でも読める。`deploy-web.ts` はバケット名・namespace・プロファイル・リージョンを表示するので、環境固有の値(namespace・バケット名・テナンシの OCID・ドメインの URL・client id・client secret・リージョン)はすべて GitHub の **environment secret** に入れる(ログで `***` になる)。UPST と JWT は `::add-mask::` で伏せる
+- 実装で決めたこと(すべて **(仮置き)**)
+  - `apps/web/scripts/oci-upst.ts` が、OIDC トークンの取得 → 鍵ペアの作成(`node:crypto`。RSA 2048 ビット)→ UPST への交換 → OCI CLI の設定一式の書き出しを行う。判断(本文・Basic ヘッダー・応答の検証・PEM の本体・fingerprint・設定ファイルの文字列・JWT の payload の取り出し)は純粋な関数にして単体テストし、fetch は引数で受け取る。SDK を使わず TypeScript で書くのは、ほかの配置スクリプトと言語・テストの流儀をそろえ、仕組みを読めるようにするため
+  - 入力は環境変数: `ACTIONS_ID_TOKEN_REQUEST_URL` / `ACTIONS_ID_TOKEN_REQUEST_TOKEN`(GitHub が渡す)、`OCI_DOMAIN_URL`(`https://` で始まること)、`OCI_TOKEN_EXCHANGE_CLIENT_ID` / `OCI_TOKEN_EXCHANGE_CLIENT_SECRET`、`OCI_TENANCY_OCID`、`OCI_REGION`、`OCI_PROFILE`(書き出すプロファイル名。workflow では `GITHUB_ACTIONS`)、`OCI_UPST_DIR`(出力先。workflow では `$RUNNER_TEMP/oci`)。足りない値は名前をすべて挙げて止める。`OIDC_AUDIENCE` は任意(省略すると GitHub の既定の aud = リポジトリの所有者の URL)
+  - 出力先に秘密鍵(`oci_api_key.pem`)・UPST(`token`)・設定(`config`)を権限 0600 で書く(ディレクトリは 0700)。設定は `oci session authenticate` が書くのと同じ項目・順序(`fingerprint`・`key_file`・`tenancy`・`region`・`security_token_file`。fingerprint は公開鍵の DER の MD5 をコロン区切り)。workflow は `OCI_CLI_CONFIG_FILE` でこの設定を渡す
+  - 表示するのは、GitHub の JWT の `sub` と `aud`、UPST の `exp` と残り時間だけ(未確定事項の確認に使う)。JWT・UPST・client secret・秘密鍵は表示しない。失敗したときのメッセージには、交換の応答の `error` / `error_description` とステータスだけを入れる
+  - client id / secret は SDK と同じく、URL エンコードせずに `client_id:client_secret` を base64 にする
+  - workflow: `on: workflow_dispatch` だけ。`environment: stg`(deployment branches は main のみ)。`permissions` は `contents: read` と `id-token: write`。`concurrency` は配置先ごとに 1 つ(`deploy-web-stg`)、`cancel-in-progress: false`(途中で止めるとバケットが中途半端になるため)。アクションは verify.yml と同じ SHA で固定し、`persist-credentials: false`、Node 24、`npm ci`
+  - OCI CLI は `pipx install oci-cli==3.92.1`(手元と同じ版に固定)
+  - `.env` は workflow の中で secret から `$RUNNER_TEMP/deploy.env` に書き(`umask 077`)、`npm run deploy:web -- --env-file <そのパス>` で渡す。最後に(失敗しても)`$RUNNER_TEMP` の鍵・トークン・設定・`.env` を消す
+  - 手順は `apps/web/README.md` に足さず、`docs/deploy-web-wif.md` に分けた。OCI のドメイン・Terraform・GitHub の設定にまたがり、`apps/web` の README(画面の開発と手元の配置)の範囲を超えるため。README からはリンクする
+
 ## 11. 環境で変わってよい値
 
 stg と prod で違ってよいのは、次の表の値だけ。**ここにないもの(API 仕様、コード、入力の上限、エラーの形式、リトライの打ち切り時間、Function のメモリとタイムアウト、NoSQL のユニット数など)は両環境で同一にする。**
@@ -652,6 +676,8 @@ stg と prod で違ってよいのは、次の表の値だけ。**ここにな�
 | Vault と鍵の削除日時(`vault_time_of_deletion`) | `terraform.tfvars` | destroy の前にだけ入れる **(仮置き)** |
 | namespace、バケット名、OCI CLI のプロファイル、リージョン | `.env`(配置スクリプト用) | |
 | `VITE_API_BASE_URL` | `apps/web/.env` | 手元の開発のみ |
+| 配置の service user のグループの OCID(`deploy_web_group_id`) | `terraform.tfvars` | GitHub Actions からの配置を使うときだけ **(仮置き)** |
+| ドメインの URL、トークン交換用アプリの client id / secret、テナンシの OCID、リージョン、namespace、バケット名 | GitHub の environment secret(environment は環境名と同じ) | GitHub Actions からの配置用([10.6](#106-配置作業))。ログに出ないように、すべて secret にする **(仮置き)** |
 
 - コンテナイメージは一度だけビルドし、stg で確認したものと同じダイジェストを prod に使う
 - NoSQL の読み取り・書き込みユニットは両環境で同じ値にする(変えるとスロットリングの振る舞いが変わり、stg での確認が prod の保証にならない)
@@ -667,8 +693,10 @@ CLAUDE.md の方針どおり、クラウドに変更を加える操作は人が�
 | Function のイメージのビルドと push | 人(ビルドとテストの準備は Claude Code でも可) |
 | Vault へのトークンの登録・更新 | 人 |
 | `npm run deploy:web` / `npm run clean:web` | 人 |
+| 配置の workflow(`deploy-web.yml`)の実行(Actions の画面、`gh workflow run` を含む) | 人 |
+| OCI のドメインの設定(service user・グループ・トークン交換用アプリ・Identity Propagation Trust) | 人 |
 
-- 上の表の操作は、CLAUDE.md の「人が実行する」ルールに反映済み(Vault へのトークンの登録・更新、`npm run deploy:web` / `npm run clean:web` を含む)
+- 上の表の操作は、CLAUDE.md の「人が実行する」ルールに反映済み(Vault へのトークンの登録・更新、`npm run deploy:web` / `npm run clean:web`、配置の workflow の実行、アイデンティティドメインの設定を含む)
 
 ## 13. 未確定事項(要検証)
 
@@ -692,6 +720,12 @@ CLAUDE.md の方針どおり、クラウドに変更を加える操作は人が�
 | 16 | API Gateway が受け取ったヘッダーのうち、どれが `Fn-Http-H-<名前>` として、どれが呼び出しそのもののヘッダーとして Function に届くか。→ 2026-09-28 の stg で、`Content-Type: application/json` を付けた `POST /api/memos` が `415` になった(`GET` の一覧は `200`、認証なしは `401`)。`ctx.httpGateway.headers` だけを見ていたため。`Content-Type` などの標準的なヘッダーは呼び出しそのもののヘッダーとして届くという情報(第三者のブログ)に合わせ、両方を合わせて渡す形にした。公式の記述は未確認。`If-Match` がどちらで届くかも未確認 → 2026-09-29 の stg で、両方を合わせて渡す形にしたあとも `POST` が `415` のままだった(応答のボディは problem+json のオブジェクト)。推測で直すのをやめ、両方のヘッダーの名前と `Content-Type`・`If-Match` の値を一時的にログに出して(`describeRequestHeaders`。`Authorization` などの値は出さない)、実際に届く形を確かめる → 2026-09-29 の診断ログ(`POST` 1 回): `httpGateway.headers` の `Content-Type` が `["application/json", "application/json"]`、呼び出しそのもののヘッダーの `Content-Type` が `["application/json"]`。`Content-Type` は `Fn-Http-H-` 付きで届いているが、同じ値が 2 つになっていた(9-28 の `415` も同じ原因とみられ、両方を合わせて渡す修正は的外れだった)。どこで重なるかは未確認。呼び出しそのもののヘッダーには API Gateway が Function を呼ぶときのヘッダーが入っていた → **確認済み**([13.1](#131-確認済み事項)) | 作成・更新が `415` になる。`If-Match` が届かなければ、更新が `428` になり、削除は照合なしで消える | `httpGateway.headers` だけを使い、同じ値の重複を 1 つにまとめる形に直した。stg で `POST` が `201`、`If-Match` 付きの `PATCH` / `DELETE` が期待どおりになるか、`If-Match` がどう届くか(診断ログ)を確かめ、確かめたら診断ログを外す |
 | 17 | 同じ行の ETag(NoSQL の行のバージョン)が、読むたびに変わるのはなぜか。→ 2026-09-29 の stg で、変更していない同じ行の `POST`・`GET`・`GET` の ETag が 3 つとも違い、1 回目の `GET` の ETag を付けた `PATCH` が `412`、2 回目の `GET` の ETag を付けた `DELETE` は `204` だった(前日の確認では、`POST` の ETag を付けた `PATCH` は `200`)。1 件の取得は既定の読み取りの一貫性(`EVENTUAL`)で、どのレプリカから読むかでバージョンの表現が変わり、`putIfVersion` / `deleteIfVersion` の照合に通らないものがあると考えている。公式ドキュメントで確認できたのは「データの移動などで新しいバージョンが割り当てられることがある」「既定の読み取りは `EVENTUAL`」まで。KVLite(単一ノード)の契約テストでは出ない → **確認済み**([13.1](#131-確認済み事項)) | 画面で詳細を開いてから更新・削除すると `412` になる(競合と区別できない) | 1 件の取得を `Consistency.ABSOLUTE` にした(9.2)。stg で `GET` の ETag を付けた `PATCH` / `DELETE` が通るか、読み取り 1 ユニットで詳細の表示がスロットリングにならないかを確かめる。だめなら ETag をアプリの改訂番号にする(テーブルと 3.4 の変更を伴う) |
 | 18 | コールドスタートにかかる時間。→ 2026-09-29 の stg で、しばらく呼ばれていなかったあとの最初の呼び出しが 24.8 秒かかった(Functions のログの「Served function invocation request in 24.805 seconds」。authorizer の呼び出しと VNIC の作成を含む)。直後の呼び出しは 0.03〜1.1 秒 → 2026-09-28〜29 の呼び出しログ 82 件のうち、25〜38 秒が 6 件(すべて authorizer。30 秒を超えたものも失敗にはならなかった)。ほかの 76 件は中央値 0.047 秒・最大 2.23 秒。対応は未決定 | Function のタイムアウト(30 秒)と API Gateway の待ち時間に近く、最初の操作が失敗(`502` / `504`)したように見えることがある | 何度か測って分布を見る。超えるようなら、タイムアウトを延ばす、またはプロビジョンド・コンカレンシーを検討する(費用がかかるので仕様を更新する) |
+| 19 | UPST の有効期限(公式文書に記載がない)。`oci-upst.ts` がログに `UPST expires at ... (in N min)` を出すので、最初の実行で確かめる | 配置の途中で期限が切れると、OCI CLI が再認証を求めて(端末がないので)失敗する | 配置は数分で終わるので、期限が十分長ければ対応しない。短ければ、アップロードの前に交換し直す・ファイルごとに期限を確かめる形を検討する |
+| 20 | OCI が GitHub の JWT の `aud` を検証するか(公式文書に記載がない)。既定の aud はリポジトリの所有者の URL | 検証しないなら、同じ issuer の別の用途の JWT でも、sub が rule に合えば交換できる(sub は immutable な形で、このリポジトリの environment `stg` に限られる) | `OIDC_AUDIENCE` で専用の aud を付け、trust の側で aud を確かめられるか(`clientClaimName` / `clientClaimValues` など)を調べる |
+| 21 | `public_key` の形式(SPKI の PEM の本体)。SDK の実装に合わせたが、公式文書には形式の記述がない | 交換が失敗する、または UPST で署名した要求が `401` になる | 最初の実行で確かめる。だめなら PEM のまま渡す形などを試し、SDK の新しい版の実装を見直す |
+| 22 | Free 型のアイデンティティドメインで、Identity Propagation Trust とトークン交換を使えるか | trust を作れない、または交換が失敗する | ドメインの種類を変える(費用を確かめて仕様を更新する)か、GitHub Actions からの配置をやめて手元の配置に戻す |
+| 23 | `manage objects`(`target.bucket.name` で絞った文 1 つ)で、`oci os object list` / `put` / `delete` が通るか。一覧はバケットに対する操作だが、`objects` の権限だけで足りるか | 配置が権限エラーで止まる | 公式のポリシーリファレンスで操作ごとの権限を確かめ、足りない動詞やリソース(例: `read buckets`)を同じ条件で足す |
+| 24 | `ubuntu-latest` のランナーのイメージに pipx が入っているか(イメージの更新で変わりうる) | 「Install OCI CLI」の手順が失敗する | `pip install --user pipx` を足す、または OCI CLI を `pip install` で入れる |
 
 ### 13.1 確認済み事項
 
@@ -714,7 +748,7 @@ CLAUDE.md の方針どおり、クラウドに変更を加える操作は人が�
 今回の仕様には含めない。
 
 - **将来の予定**
-  - GitHub Actions からの配置: `npm run deploy:web` などの同じスクリプトを GitHub Actions から実行する。認証は OCI の Workload Identity Federation で行い、長期の API キーは置かない
+  - GitHub Actions からの配置 → 実装済み([10.6](#106-配置作業))。対象は画面の配置だけで、`npm run clean:web`・Functions のイメージ・`terraform apply` は手元で人が行う
   - stg に対する疎通テストと E2E テスト(Playwright など)
 - **扱わないもの**
   - 検索
