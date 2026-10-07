@@ -24,6 +24,17 @@ variable "auth_token_secret_id" {
   default     = null
 }
 
+variable "web_bucket_name" {
+  description = "画面用のバケットの名前(GitHub Actions からの配置で、オブジェクトを書き換えてよいバケット)"
+  type        = string
+}
+
+variable "deploy_web_group_id" {
+  description = "GitHub Actions から画面を配置する service user のグループの OCID(Default ドメイン)。人が作るまでは null"
+  type        = string
+  default     = null
+}
+
 variable "freeform_tags" {
   description = "全リソースに付けるタグ"
   type        = map(string)

@@ -122,6 +122,12 @@ variable "vault_time_of_deletion" {
   }
 }
 
+variable "deploy_web_group_id" {
+  description = "GitHub Actions から画面を配置する service user のグループの OCID(Default ドメインに人が作る。docs/deploy-web-wif.md)。作るまでは null"
+  type        = string
+  default     = null
+}
+
 # ---- 2 回目の apply で入れる値(3 つとも入れるか、3 つとも省略する) ----
 
 variable "memo_api_image" {

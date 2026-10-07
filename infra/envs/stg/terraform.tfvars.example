@@ -18,6 +18,10 @@ cors_allowed_origins = ["http://localhost:5173"]
 # authorizer_image     = "<リージョンキー>.ocir.io/<namespace>/first-oci-claude-dev-stg/authorizer:<タグ>"
 # auth_token_secret_id = "ocid1.vaultsecret.oc1..xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
+# ---- GitHub Actions から画面を配置するときに入れる。手順は docs/deploy-web-wif.md ----
+# Default ドメインに人が作った、service user のグループの OCID
+# deploy_web_group_id = "ocid1.group.oc1..xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
 # ---- destroy の前にだけ入れる。7 日より少し先の日時(RFC 3339)。手順は infra/README.md ----
 # vault_time_of_deletion = "2026-10-06T00:00:00Z"
 

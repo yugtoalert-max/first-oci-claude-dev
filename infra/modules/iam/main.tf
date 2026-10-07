@@ -10,6 +10,7 @@
 #   NoSQL                  https://docs.oracle.com/en-us/iaas/nosql-database/doc/policy-reference.html
 #   Vault のシークレット   https://docs.oracle.com/en-us/iaas/Content/Identity/Reference/keypolicyreference.htm
 #   API Gateway → Functions https://docs.oracle.com/iaas/Content/APIGateway/Tasks/apigatewaycreatingpolicies.htm#dynamicgrouppolicy
+#   Object Storage         https://docs.oracle.com/en-us/iaas/Content/Identity/Reference/objectstoragepolicyreference.htm
 
 # 動的グループはテナンシ(ルートコンパートメント)に作る。名前はテナンシの中で一意
 resource "oci_identity_dynamic_group" "functions" {
@@ -36,6 +37,11 @@ locals {
     # authorizer: 対象シークレットの読み取り(GetSecretBundle)。シークレットを人が作るまでは付けない
     var.auth_token_secret_id == null ? [] : [
       "Allow ${local.functions_subject} to read secret-bundles in ${local.compartment} where target.secret.id = '${var.auth_token_secret_id}'",
+    ],
+    # GitHub Actions からの画面の配置(deploy-web.yml)。UPST の service user が入るグループに、画面用のバケットの
+    # オブジェクトの一覧・アップロード・削除を許す。グループを人が作るまでは付けない
+    var.deploy_web_group_id == null ? [] : [
+      "Allow group id ${var.deploy_web_group_id} to manage objects in ${local.compartment} where target.bucket.name = '${var.web_bucket_name}'",
     ],
   )
 }
