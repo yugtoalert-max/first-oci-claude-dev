@@ -109,3 +109,4 @@ npm run clean:web                 # バケットを空にする(terraform destro
 - Cache-Control: `index.html` とハッシュなしのファイルは `no-cache`、`assets/*` は `public, max-age=31536000, immutable`
 - prod など別の配置先は `.env.prod` などに書き、`--env-file .env.prod` で渡します
 - スクリプトは `node` で TypeScript を直接実行します(型を取り除く機能を使うので、Node.js 22.18 以降)
+- GitHub Actions から配置する(`.github/workflows/deploy-web.yml`。認証は Workload Identity Federation)手順は [docs/deploy-web-wif.md](../../docs/deploy-web-wif.md)。workflow の実行も人が行います

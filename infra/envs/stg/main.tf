@@ -118,6 +118,8 @@ module "iam" {
   name_prefix          = local.name_prefix
   nosql_table_name     = module.nosql.table_name
   auth_token_secret_id = var.auth_token_secret_id
+  web_bucket_name      = module.web_bucket.bucket_name
+  deploy_web_group_id  = var.deploy_web_group_id
   freeform_tags        = local.freeform_tags
 }
 

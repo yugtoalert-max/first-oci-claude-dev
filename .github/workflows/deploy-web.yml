@@ -1,0 +1,82 @@
+# 画面(apps/web/dist)を stg のバケットに配置する(SPEC 10.6)。実行は人が行う(Actions の画面か gh workflow run)。
+# OCI への認証は Workload Identity Federation: GitHub の OIDC トークンを OCI の UPST に交換する。長期の API キーは置かない。
+# 手順と必要な secret は docs/deploy-web-wif.md。
+# public リポジトリなのでログは誰でも読める。環境固有の値はすべて environment secret から渡す(ログでは *** になる)。
+# アクションはタグではなくコミットの SHA で固定し、更新は Dependabot に任せる(verify.yml と同じ)
+name: deploy-web
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # OIDC トークンの取得に要る
+  id-token: write
+
+# 同じ配置先への配置は 1 つずつ。途中で止めるとバケットが中途半端になるので、実行中のものは取り消さない
+concurrency:
+  group: deploy-web-stg
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy (stg)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # deployment branches(main のみ)と environment secret はここで効く。OIDC トークンの sub も environment:stg になる
+    environment: stg
+    env:
+      # oci-upst.ts が書くプロファイル名と、deploy-web.ts に渡すプロファイル名(仮置き)
+      OCI_PROFILE: GITHUB_ACTIONS
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      # 版を固定する。pipx は ubuntu-latest のイメージに入っている前提(なければここで失敗する)
+      - name: Install OCI CLI
+        run: |
+          pipx --version
+          pipx install oci-cli==3.92.1
+          oci --version
+
+      - name: Exchange the GitHub OIDC token for an OCI UPST
+        env:
+          OCI_DOMAIN_URL: ${{ secrets.OCI_DOMAIN_URL }}
+          OCI_TOKEN_EXCHANGE_CLIENT_ID: ${{ secrets.OCI_TOKEN_EXCHANGE_CLIENT_ID }}
+          OCI_TOKEN_EXCHANGE_CLIENT_SECRET: ${{ secrets.OCI_TOKEN_EXCHANGE_CLIENT_SECRET }}
+          OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_UPST_DIR: ${{ runner.temp }}/oci
+        run: node apps/web/scripts/oci-upst.ts
+
+      # deploy-web.ts は .env を読むので、secret から一時ファイルに書く(自分だけが読める権限で)
+      - name: Write the env file
+        env:
+          OCI_NAMESPACE: ${{ secrets.OCI_NAMESPACE }}
+          OCI_BUCKET: ${{ secrets.OCI_BUCKET }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+        run: |
+          umask 077
+          {
+            printf 'OCI_NAMESPACE=%s\n' "$OCI_NAMESPACE"
+            printf 'OCI_BUCKET=%s\n' "$OCI_BUCKET"
+            printf 'OCI_PROFILE=%s\n' "$OCI_PROFILE"
+            printf 'OCI_REGION=%s\n' "$OCI_REGION"
+          } > "$RUNNER_TEMP/deploy.env"
+
+      - name: Deploy
+        env:
+          OCI_CLI_AUTH: security_token
+          OCI_CLI_CONFIG_FILE: ${{ runner.temp }}/oci/config
+        run: npm run deploy:web -- --env-file "$RUNNER_TEMP/deploy.env"
+
+      # 鍵・トークン・設定を残さない(失敗・取り消しのときも)
+      - name: Remove credentials
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/oci" "$RUNNER_TEMP/deploy.env"
