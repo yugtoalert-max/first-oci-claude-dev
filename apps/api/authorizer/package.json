@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@fnproject/fdk": "^0.0.108",
-    "oci-common": "^2.142.0",
-    "oci-secrets": "^2.142.0"
+    "oci-common": "^2.142.1",
+    "oci-secrets": "^2.142.1"
   }
 }
