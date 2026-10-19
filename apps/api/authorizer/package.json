@@ -9,8 +9,8 @@
     "build:function": "npm run bundle && docker build --platform linux/arm64 -t memo-authorizer:local ."
   },
   "dependencies": {
-    "@fnproject/fdk": "^0.0.108",
-    "oci-common": "^2.142.0",
-    "oci-secrets": "^2.142.0"
+    "@fnproject/fdk": "^0.0.112",
+    "oci-common": "^2.142.2",
+    "oci-secrets": "^2.142.2"
   }
 }

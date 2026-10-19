@@ -13,7 +13,7 @@
     "build:function": "npm run bundle && docker build --platform linux/arm64 -t memo-api:local ."
   },
   "dependencies": {
-    "@fnproject/fdk": "^0.0.108",
+    "@fnproject/fdk": "^0.0.112",
     "@memo/core": "*",
     "oracle-nosqldb": "^5.5.4"
   }
